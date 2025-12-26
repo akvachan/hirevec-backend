@@ -1,7 +1,9 @@
 package hirevec
 
 import (
+	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 )
@@ -15,6 +17,8 @@ func validateID(id string) error {
 }
 
 func GetPosition(w http.ResponseWriter, r *http.Request) {
+	slog.Info("running GetPosition endpoint...")
+
 	id := r.PathValue("id")
 
 	if err := validateID(id); err != nil {
@@ -27,18 +31,19 @@ func GetPosition(w http.ResponseWriter, r *http.Request) {
 	rows, err := HirevecDatabase.Query(query, id)
 	if err != nil {
 		slog.Error("could not perform a query")
+		return
 	}
 	defer rows.Close()
 
+	var jsonBuildObject json.RawMessage
 	for rows.Next() {
-		if err := rows.Scan(&position); err != nil {
-			slog.Error("could not extract all needed columns")
+		if err := rows.Scan(&jsonBuildObject); err != nil {
+			slog.Error(fmt.Sprintf("could not extract all needed columns: %v", err))
+			return
 		}
 	}
 
-	if !rows.NextResultSet() {
-		slog.Error("expected more result sets")
-	}
+	WriteResponse(w, http.StatusOK, APIResponse{Data: jsonBuildObject})
 }
 
 func GetCandidate(w http.ResponseWriter, r *http.Request) {}
