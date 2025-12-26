@@ -60,4 +60,4 @@ where position_id = {{position_id}};
 ```
 
 - Never use closers, interfaces or contexts unless there is no other way to do what needs to be done.
-- Do not download, install, use 3rd party dependencies beside those that are already available in the [go.mod].
+- Do not download, install, use 3rd party dependencies beside those that are already available in the [./go.mod](go.mod).
