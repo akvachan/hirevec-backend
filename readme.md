@@ -45,5 +45,5 @@
 
 ## Links
 
-- For contribution guidelines, see [./contributing.md](contributing.md)
-- For general architectural overview, see [./docs/architecture.md](architecture.md)
+- For contribution guidelines, see [contributing.md](./contributing.md)
+- For general architectural overview, see [architecture.md](./docs/architecture.md)
