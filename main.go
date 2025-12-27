@@ -14,6 +14,10 @@ import (
 )
 
 func main() {
+	// Set up environment variables
+	hirevec.LoadDotEnv(".env")
+
+	// Set up logger
 	hirevec.HirevecLogger = slog.New(
 		slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
 			Level: slog.LevelInfo,
@@ -21,27 +25,26 @@ func main() {
 	)
 	slog.SetDefault(hirevec.HirevecLogger)
 
-	hirevec.LoadDotEnv(".env")
-	url := os.Getenv("DATABASE_URL")
-
-	database, err := sql.Open("pgx", url)
+	// Set up database
+	database, err := sql.Open("pgx", os.Getenv("DATABASE_URL"))
 	if err != nil {
 		slog.Error(fmt.Sprintf("unable to connect to database: %v", err))
 		os.Exit(1)
 	}
+	hirevec.HirevecDatabase = database
 	defer database.Close()
 
+	// Set up server
 	server := &http.Server{
 		Addr:         hirevec.Addr,
 		Handler:      hirevec.MainHandler(),
 		ReadTimeout:  hirevec.ReadTimeout,
 		WriteTimeout: hirevec.WriteTimout,
 	}
+	hirevec.HirevecServer = server
 	defer server.Close()
 
-	hirevec.HirevecDatabase = database
-	hirevec.HirevecServer = server
-
+	// Start server
 	slog.Info(fmt.Sprintf("server listening on %v", server.Addr))
 	err = server.ListenAndServe()
 	if err != nil {
