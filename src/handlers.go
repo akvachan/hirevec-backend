@@ -165,7 +165,7 @@ func CreateDislikeHandler(w http.ResponseWriter, r *http.Request) {}
 
 func CreateSwipeHandler(w http.ResponseWriter, r *http.Request) {}
 
-// MainHandler is a function that assembles all routes and applies all middleware
+// MainHandler is a function that assembles all routes and applies middleware.
 func MainHandler() http.Handler {
 	mainRouter := RegisterRoutes()
 	mainHandler := MaxBytesMiddleware(mainRouter)
