@@ -46,8 +46,5 @@ func main() {
 
 	// Start server
 	slog.Info(fmt.Sprintf("server listening on %v", server.Addr))
-	err = server.ListenAndServe()
-	if err != nil {
-		slog.Error(fmt.Sprintf("server crashed: %v", err))
-	}
+	_ = server.ListenAndServe()
 }
