@@ -17,8 +17,6 @@ func validateID(id string) error {
 	return nil
 }
 
-// TODO ./todos/261225-135914-ImplementBasicHandlers.md
-
 func GetPositionHandler(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 

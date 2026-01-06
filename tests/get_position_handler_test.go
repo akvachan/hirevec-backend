@@ -19,7 +19,6 @@ type GetPositionsSuccessResponse struct {
 
 const url string = "http://localhost:8888/api/v0"
 
-// TODO ./todos/261225-155400-ImplementBasicTests.md
 func TestGetPositionSuccess(t *testing.T) {
 	path := url + "/positions/1"
 	resp, err := http.Get(path)
