@@ -1,9 +1,9 @@
 ## Installation
 - Inside the root of the repository:
 ```
-make run
+make 
 ```
-- Development setup with a hot-reload:
+- Development setup with a hot-reload (Optional):
 ```
 make watch
 ```
