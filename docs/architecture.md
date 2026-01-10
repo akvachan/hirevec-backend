@@ -47,11 +47,11 @@
 | created\_at    | TIMESTAMP           | NOT NULL, DEFAULT `NOW()`  |
 
 ## Matches
-| Column        | Type      | Constraints               |
-| ------------  | --------- | ------------------------- |
-| candidate\_id | INT       | FK, ON DELETE CASCADE     |
-| position\_id  | INT       | FK, ON DELETE CASCADE     |
-| timestamp     | TIMESTAMP | NOT NULL, DEFAULT `NOW()` |
+| Column        | Type      | Constraints                   |
+| ------------  | --------- | ----------------------------- |
+| candidate\_id | INT       | PK, FK, ON DELETE CASCADE     |
+| position\_id  | INT       | PK, FK, ON DELETE CASCADE     |
+| timestamp     | TIMESTAMP | NOT NULL, DEFAULT `NOW()`     |
 
 
 ```mermaid
@@ -101,8 +101,8 @@ erDiagram
     }
 
     MATCHES {
-        int candidate_id FK
-        int position_id FK
+        int candidate_id PK, FK
+        int position_id PK, FK
         timestamp timestamp
     }
     USERS ||--o| CANDIDATES : "has"
