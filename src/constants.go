@@ -5,24 +5,19 @@ package hirevec
 import "time"
 
 const (
-	Bit      int64 = 1
-	Kilobyte int64 = Bit * 1024
-	Megabyte int64 = Kilobyte * 1024
-	Gigabyte int64 = Megabyte * 1024
-	Terabyte int64 = Gigabyte * 1024
+	bit      int64 = 1
+	kilobyte int64 = bit * 1024
+	megabyte int64 = kilobyte * 1024
 )
 
 const (
-	PageSizeDefaultLimit = 50
-	PageSizeMaxLimit     = 100
+	pageSizeDefaultLimit = 50
+	pageSizeMaxLimit     = 100
 )
 
-const (
-	MaxBytesHandler = 1 * Megabyte
-	ReadTimeout     = 2 * time.Second
-	WriteTimout     = 2 * time.Second
-)
+const maxBytesHandler = 1 * megabyte
 
 const (
-	Addr = "localhost:8888"
+	ReadTimeout = 2 * time.Second
+	WriteTimout = 2 * time.Second
 )

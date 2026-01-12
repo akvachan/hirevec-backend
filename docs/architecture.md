@@ -37,7 +37,7 @@
 | reaction\_type | ENUM(like, dislike) | NOT NULL                   |
 | created\_at    | TIMESTAMP           | NOT NULL, DEFAULT `NOW()`  |
 
-### Recrutiers' reactions
+### Recruiters' reactions
 | Column         | Type                | Constraints                |
 | -------------  | ------------------- | -------------------------- |
 | recruiter\_id  | INT                 | PK, FK, ON DELETE CASCADE  |
@@ -53,7 +53,8 @@
 | position\_id  | INT       | PK, FK, ON DELETE CASCADE     |
 | timestamp     | TIMESTAMP | NOT NULL, DEFAULT `NOW()`     |
 
-### ER Diagram
+## ER Diagram
+
 ```mermaid
 ---
 config:

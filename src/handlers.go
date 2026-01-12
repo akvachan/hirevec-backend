@@ -3,170 +3,277 @@
 package hirevec
 
 import (
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
-	"strconv"
 )
 
-func validateID(id string) error {
-	if len(id) > 10 {
-		return errors.New("id out of range")
+type SuccessAPIResponse struct {
+	Status string `json:"status"`
+	Data   any    `json:"data,omitempty"`
+}
+
+type ErrorAPIResponse struct {
+	Status  string `json:"status"`
+	Message string `json:"message"`
+}
+
+type FailAPIResponse struct {
+	Status  string `json:"status"`
+	Message any    `json:"message"`
+}
+
+func writeSuccessResponse(w http.ResponseWriter, status int, data any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(
+		SuccessAPIResponse{
+			Status: "success",
+			Data:   data,
+		},
+	)
+}
+
+func writeErrorResponse(w http.ResponseWriter, status int, message string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(
+		ErrorAPIResponse{
+			Status:  "error",
+			Message: message,
+		},
+	)
+}
+
+func writeFailResponse(w http.ResponseWriter, status int, message any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(
+		FailAPIResponse{
+			Status:  "fail",
+			Message: message,
+		},
+	)
+}
+
+func decodeJSON(r *http.Request, outData any) error {
+	dec := json.NewDecoder(r.Body)
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(outData); err != nil {
+		return err
+	}
+	if dec.More() {
+		return errors.New("extra data")
 	}
 	return nil
 }
 
-func GetPositionHandler(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-
-	if err := validateID(id); err != nil {
-		slog.Error("query failed", "err", err)
-		WriteResponse(w, http.StatusBadRequest, APIResponse{Error: "invalid id"})
-		return
-	}
-
-	query := GetPositionByIDQuery
-	var result json.RawMessage
-	err := HirevecDatabase.QueryRow(query, id).Scan(&result)
-	if len(result) == 0 {
-		WriteResponse(w, http.StatusNotFound, APIResponse{Error: "position not found"})
-		return
-	}
-	if err != nil {
-		slog.Error("query failed", "err", err)
-		WriteResponse(w, http.StatusInternalServerError, APIResponse{Error: "internal server error"})
-		return
-	}
-
-	WriteResponse(w, http.StatusOK, APIResponse{Data: result})
-}
-
-func GetPositionsHandler(w http.ResponseWriter, r *http.Request) {
-	limit := PageSizeDefaultLimit
-	if l := r.URL.Query().Get("limit"); l != "" {
-		parsed, err := strconv.Atoi(l)
-		if err != nil || parsed <= 0 {
-			slog.Error("query failed", "err", err)
-			WriteResponse(w, http.StatusBadRequest, APIResponse{Error: "invalid limit"})
-			return
-		}
-		if parsed > PageSizeMaxLimit {
-			parsed = PageSizeMaxLimit
-		}
-		limit = parsed
-	}
-
-	offset := 0
-	if o := r.URL.Query().Get("offset"); o != "" {
-		parsed, err := strconv.Atoi(o)
-		if err != nil || parsed < 0 {
-			slog.Error("query failed", "err", err)
-			WriteResponse(w, http.StatusBadRequest, APIResponse{Error: "invalid offset"})
-			return
-		}
-		offset = parsed
-	}
-
-	query := GetPositionsQuery
-	var result json.RawMessage
-	err := HirevecDatabase.QueryRow(query, limit, offset).Scan(&result)
-	if err != nil {
-		slog.Error("query failed", "err", err)
-		WriteResponse(w, http.StatusInternalServerError, APIResponse{Error: "internal server error"})
-		return
-	}
-
-	WriteResponse(w, http.StatusOK, APIResponse{Data: result})
-}
-
-func GetCandidateHandler(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-
-	if err := validateID(id); err != nil {
-		slog.Error("query failed", "err", err)
-		WriteResponse(w, http.StatusBadRequest, APIResponse{Error: "invalid id"})
-		return
-	}
-
-	query := GetCandidateByIDQuery
-	var result json.RawMessage
-	err := HirevecDatabase.QueryRow(query, id).Scan(&result)
-	if len(result) == 0 {
-		WriteResponse(w, http.StatusNotFound, APIResponse{Error: "candidate not found"})
-		return
-	}
-	if err != nil {
-		slog.Error("query failed", "err", err)
-		WriteResponse(w, http.StatusInternalServerError, APIResponse{Error: "internal server error"})
-		return
-	}
-
-	WriteResponse(w, http.StatusOK, APIResponse{Data: result})
-}
-
-func GetCandidatesHandler(w http.ResponseWriter, r *http.Request) {
-	limit := PageSizeDefaultLimit
-	if l := r.URL.Query().Get("limit"); l != "" {
-		parsed, err := strconv.Atoi(l)
-		if err != nil || parsed <= 0 {
-			slog.Error("query failed", "err", err)
-			WriteResponse(w, http.StatusBadRequest, APIResponse{Error: "invalid limit"})
-			return
-		}
-		if parsed > PageSizeMaxLimit {
-			parsed = PageSizeMaxLimit
-		}
-		limit = parsed
-	}
-
-	offset := 0
-	if o := r.URL.Query().Get("offset"); o != "" {
-		parsed, err := strconv.Atoi(o)
-		if err != nil || parsed < 0 {
-			slog.Error("query failed", "err", err)
-			WriteResponse(w, http.StatusBadRequest, APIResponse{Error: "invalid offset"})
-			return
-		}
-		offset = parsed
-	}
-
-	query := GetCandidatesQuery
-	var result json.RawMessage
-	err := HirevecDatabase.QueryRow(query, limit, offset).Scan(&result)
-	if err != nil {
-		slog.Error("query failed", "err", err)
-		WriteResponse(w, http.StatusInternalServerError, APIResponse{Error: "internal server error"})
-		return
-	}
-
-	WriteResponse(w, http.StatusOK, APIResponse{Data: result})
-}
-
-func GetMatchHandler(w http.ResponseWriter, r *http.Request) {}
-
-func GetLikeHandler(w http.ResponseWriter, r *http.Request) {}
-
-func GetDislikeHandler(w http.ResponseWriter, r *http.Request) {}
-
-func GetSwipeHandler(w http.ResponseWriter, r *http.Request) {}
-
-func CreatePositionHandler(w http.ResponseWriter, r *http.Request) {}
-
-func CreateCandidateHandler(w http.ResponseWriter, r *http.Request) {}
-
-func CreateMatchHandler(w http.ResponseWriter, r *http.Request) {}
-
-func CreateLikeHandler(w http.ResponseWriter, r *http.Request) {}
-
-func CreateDislikeHandler(w http.ResponseWriter, r *http.Request) {}
-
-func CreateSwipeHandler(w http.ResponseWriter, r *http.Request) {}
-
-// MainHandler is a function that assembles all routes and applies middleware.
-func MainHandler() http.Handler {
-	mainRouter := RegisterRoutes()
-	mainHandler := MaxBytesMiddleware(mainRouter)
-	mainHandler = LoggingMiddleware()(mainHandler)
+// GetMainHandler is a function that assembles all routes and applies middleware.
+func GetMainHandler() http.Handler {
+	mainRouter := registerRoutes()
+	mainHandler := getMaxBytesMiddleware(mainRouter)
+	mainHandler = getLoggingMiddleware()(mainHandler)
 	return mainHandler
+}
+
+func handleGetPosition(w http.ResponseWriter, r *http.Request) {
+	id, err := validateSerialID(r.PathValue("id"))
+	if err != nil {
+		writeFailResponse(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+
+	var result json.RawMessage
+	err = selectPositionByID(&result, id)
+	if errors.Is(err, sql.ErrNoRows) {
+		writeFailResponse(w, http.StatusNotFound, "position not found")
+		return
+	}
+	if err != nil {
+		slog.Error("query failed", "err", err)
+		writeErrorResponse(w, http.StatusInternalServerError, "internal server error")
+		return
+	}
+
+	writeSuccessResponse(w, http.StatusOK, result)
+}
+
+func handleGetPositions(w http.ResponseWriter, r *http.Request) {
+	limit, err := validateLimit(r.URL.Query().Get("limit"))
+	if err != nil {
+		writeFailResponse(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	offset, err := validateOffset(r.URL.Query().Get("offset"))
+	if err != nil {
+		writeFailResponse(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	var result json.RawMessage
+	err = selectPositions(&result, paginator{Limit: limit, Offset: offset})
+	if err != nil {
+		slog.Error("query failed", "err", err)
+		writeErrorResponse(w, http.StatusInternalServerError, "internal server error")
+		return
+	}
+
+	writeSuccessResponse(w, http.StatusOK, result)
+}
+
+func handleGetCandidate(w http.ResponseWriter, r *http.Request) {
+	id, err := validateSerialID(r.PathValue("id"))
+	if err != nil {
+		writeFailResponse(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	var result json.RawMessage
+	err = selectCandidateByID(&result, id)
+	if errors.Is(err, sql.ErrNoRows) {
+		writeFailResponse(w, http.StatusNotFound, "not found")
+		return
+	}
+	if err != nil {
+		slog.Error("query failed", "err", err)
+		writeErrorResponse(w, http.StatusInternalServerError, "internal server error")
+		return
+	}
+
+	writeSuccessResponse(w, http.StatusOK, result)
+}
+
+func handleGetCandidates(w http.ResponseWriter, r *http.Request) {
+	limit, err := validateLimit(r.URL.Query().Get("limit"))
+	if err != nil {
+		writeFailResponse(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	offset, err := validateOffset(r.URL.Query().Get("offset"))
+	if err != nil {
+		writeFailResponse(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	var result json.RawMessage
+	err = selectCandidates(&result, paginator{Limit: limit, Offset: offset})
+	if err != nil {
+		slog.Error("query failed", "err", err)
+		writeErrorResponse(w, http.StatusInternalServerError, "internal server error")
+		return
+	}
+
+	writeSuccessResponse(w, http.StatusOK, result)
+}
+
+func handlePostCandidateReaction(w http.ResponseWriter, r *http.Request) {
+	var req CandidatesReactionRequest
+
+	if err := decodeJSON(r, &req); err != nil {
+		writeFailResponse(w, http.StatusBadRequest, "malformed request")
+		return
+	}
+
+	cid, err := validateSerialID(r.PathValue("id"))
+	if err != nil {
+		writeFailResponse(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	pid, err := validateSerialID(req.PositionID)
+	if err != nil {
+		writeFailResponse(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	rtype, err := validateReactionType(req.ReactionType)
+	if err != nil {
+		writeFailResponse(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	err = insertCandidateReaction(candidateReaction{CandidateID: cid, PositionID: pid, ReactionType: rtype})
+	if err != nil {
+		slog.Error("query failed", "err", err)
+		writeErrorResponse(w, http.StatusInternalServerError, "internal server error")
+		return
+	}
+
+	writeSuccessResponse(w, http.StatusCreated, nil)
+}
+
+func handlePostRecruiterReaction(w http.ResponseWriter, r *http.Request) {
+	var req RecruitersReactionRequest
+
+	if err := decodeJSON(r, &req); err != nil {
+		writeFailResponse(w, http.StatusBadRequest, "malformed request")
+		return
+	}
+
+	rid, err := validateSerialID(r.PathValue("id"))
+	if err != nil {
+		writeFailResponse(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	pid, err := validateSerialID(req.PositionID)
+	if err != nil {
+		writeFailResponse(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	cid, err := validateSerialID(req.CandidateID)
+	if err != nil {
+		writeFailResponse(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	rtype, err := validateReactionType(req.ReactionType)
+	if err != nil {
+		writeFailResponse(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	err = insertRecruiterReaction(recruiterReaction{RecruiterID: rid, CandidateID: cid, PositionID: pid, ReactionType: rtype})
+	if err != nil {
+		slog.Error("query failed", "err", err)
+		writeErrorResponse(w, http.StatusInternalServerError, "internal server error")
+		return
+	}
+
+	writeSuccessResponse(w, http.StatusCreated, nil)
+}
+
+func handlePostMatch(w http.ResponseWriter, r *http.Request) {
+	var req MatchRequest
+
+	if err := decodeJSON(r, &req); err != nil {
+		writeFailResponse(w, http.StatusBadRequest, "malformed request")
+		return
+	}
+
+	pid, err := validateSerialID(req.PositionID)
+	if err != nil {
+		writeFailResponse(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	cid, err := validateSerialID(req.CandidateID)
+	if err != nil {
+		writeFailResponse(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	err = insertMatch(match{CandidateID: cid, PositionID: pid})
+	if err != nil {
+		slog.Error("query failed", "err", err)
+		writeErrorResponse(w, http.StatusInternalServerError, "internal server error")
+		return
+	}
+
+	writeSuccessResponse(w, http.StatusCreated, nil)
 }

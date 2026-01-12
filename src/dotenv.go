@@ -4,22 +4,9 @@ package hirevec
 
 import (
 	"bufio"
-	"encoding/json"
-	"net/http"
 	"os"
 	"strings"
 )
-
-type APIResponse struct {
-	Data  any    `json:"data,omitempty"`
-	Error string `json:"error,omitempty"`
-}
-
-func WriteResponse(w http.ResponseWriter, status int, data any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(data)
-}
 
 func LoadDotEnv(path string) error {
 	f, err := os.Open(path)

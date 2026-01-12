@@ -14,8 +14,8 @@ type responseWriter struct {
 	wroteHeader bool
 }
 
-// LoggingMiddleware is a middleware that logs all incoming requests.
-func LoggingMiddleware() func(http.Handler) http.Handler {
+// getLoggingMiddleware is a middleware that logs all incoming requests.
+func getLoggingMiddleware() func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			start := time.Now()
@@ -34,8 +34,8 @@ func LoggingMiddleware() func(http.Handler) http.Handler {
 	}
 }
 
-// MaxBytesMiddleware is a middleware that rejects all requests that are bigger than a certain size.
+// getMaxBytesMiddleware is a middleware that rejects all requests that are bigger than a certain size.
 // Additionally it sets maximum response size as well.
-func MaxBytesMiddleware(h *http.ServeMux) http.Handler {
-	return http.MaxBytesHandler(h, MaxBytesHandler)
+func getMaxBytesMiddleware(h *http.ServeMux) http.Handler {
+	return http.MaxBytesHandler(h, maxBytesHandler)
 }

@@ -8,13 +8,16 @@ import (
 )
 
 var (
-	PostionRoute    = "/api/v0/positions/{id}"
-	PositionsRoute  = "/api/v0/positions/"
-	CandidateRoute  = "/api/v0/candidates/{id}"
-	CandidatesRoute = "/api/v0/candidates/"
+	positionRoute           = "/api/v0/positions/{id}"
+	positionsRoute          = "/api/v0/positions/"
+	candidateRoute          = "/api/v0/candidates/{id}"
+	candidatesRoute         = "/api/v0/candidates/"
+	candidatesReactionRoute = "/api/v0/candidates/{id}/reactions"
+	recruitersReactionRoute = "/api/v0/recruiters/{id}/reactions"
+	matchesRoute            = "/api/v0/matches/"
 )
 
-func RegisterRoute(
+func registerRoute(
 	router *http.ServeMux,
 	method string,
 	route string,
@@ -23,13 +26,16 @@ func RegisterRoute(
 	router.HandleFunc(fmt.Sprintf("%v %v", method, route), handler)
 }
 
-func RegisterRoutes() *http.ServeMux {
-	router := http.NewServeMux()
+func registerRoutes() *http.ServeMux {
+	r := http.NewServeMux()
 
-	RegisterRoute(router, http.MethodGet, PositionsRoute, GetPositionsHandler)
-	RegisterRoute(router, http.MethodGet, PostionRoute, GetPositionHandler)
-	RegisterRoute(router, http.MethodGet, CandidatesRoute, GetCandidatesHandler)
-	RegisterRoute(router, http.MethodGet, CandidateRoute, GetCandidateHandler)
+	registerRoute(r, http.MethodGet, positionsRoute, handleGetPositions)
+	registerRoute(r, http.MethodGet, positionRoute, handleGetPosition)
+	registerRoute(r, http.MethodGet, candidatesRoute, handleGetCandidates)
+	registerRoute(r, http.MethodGet, candidateRoute, handleGetCandidate)
+	registerRoute(r, http.MethodPost, candidatesReactionRoute, handlePostCandidateReaction)
+	registerRoute(r, http.MethodPost, recruitersReactionRoute, handlePostRecruiterReaction)
+	registerRoute(r, http.MethodPost, matchesRoute, handlePostMatch)
 
-	return router
+	return r
 }

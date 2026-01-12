@@ -3,11 +3,14 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
+	"os/signal"
+	"time"
 
 	hirevec "github.com/akvachan/hirevec-backend/src"
 	_ "github.com/jackc/pgx/v5/stdlib"
@@ -15,7 +18,7 @@ import (
 
 func main() {
 	// Set up environment variables
-	hirevec.LoadDotEnv(".env")
+	hirevec.LoadDotEnv(".dev.env")
 
 	// Set up logger
 	hirevec.HirevecLogger = slog.New(
@@ -26,7 +29,7 @@ func main() {
 	slog.SetDefault(hirevec.HirevecLogger)
 
 	// Set up database
-	database, err := sql.Open("pgx", os.Getenv("DATABASE_URL"))
+	database, err := sql.Open("pgx", os.Getenv("DEV_DATABASE_URL"))
 	if err != nil {
 		slog.Error(fmt.Sprintf("unable to connect to database: %v", err))
 		os.Exit(1)
@@ -34,17 +37,29 @@ func main() {
 	hirevec.HirevecDatabase = database
 	defer database.Close()
 
+	addr := "localhost:8080"
+
 	// Set up server
 	server := &http.Server{
-		Addr:         hirevec.Addr,
-		Handler:      hirevec.MainHandler(),
+		Addr:         addr,
+		Handler:      hirevec.GetMainHandler(),
 		ReadTimeout:  hirevec.ReadTimeout,
 		WriteTimeout: hirevec.WriteTimout,
 	}
 	hirevec.HirevecServer = server
 	defer server.Close()
 
-	// Start server
 	slog.Info(fmt.Sprintf("server listening on %v", server.Addr))
-	_ = server.ListenAndServe()
+	go func() {
+		_ = server.ListenAndServe()
+	}()
+
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, os.Interrupt)
+
+	<-stop
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_ = server.Shutdown(ctx)
 }
