@@ -16,6 +16,11 @@ import (
 func main() {
 	// Set up environment variables
 	hirevec.LoadDotEnv(".dev.env")
+	dsn := os.Getenv("DEV_DATABASE_URL")
+	if dsn == "" {
+		fmt.Println("DEV_DATABASE_URL is not set")
+		os.Exit(1)
+	}
 
 	// Set up logger
 	hirevec.HirevecLogger = slog.New(
@@ -26,11 +31,6 @@ func main() {
 	slog.SetDefault(hirevec.HirevecLogger)
 
 	// Set up database
-	dsn := os.Getenv("DEV_DATABASE_URL")
-	if dsn == "" {
-		fmt.Println("DEV_DATABASE_URL is not set")
-		os.Exit(1)
-	}
 	database, err := sql.Open("pgx", dsn)
 	if err != nil {
 		slog.Error(fmt.Sprintf("unable to connect to database: %v", err))
@@ -39,9 +39,8 @@ func main() {
 	hirevec.HirevecDatabase = database
 	defer database.Close()
 
-	addr := "localhost:8080"
-
 	// Set up server
+	addr := "localhost:8080"
 	server := &http.Server{
 		Addr:         addr,
 		Handler:      hirevec.GetMainHandler(),
