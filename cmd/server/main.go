@@ -24,9 +24,9 @@ const (
 func main() {
 	// Set up environment variables
 	hirevecUtils.LoadDotEnv(".dev.env")
-	dsn := os.Getenv("DEV_DATABASE_URL")
+	dsn := os.Getenv("DEV_DB_URL")
 	if dsn == "" {
-		fmt.Println("DEV_DATABASE_URL is not set")
+		fmt.Println("DEV_DB_URL is not set")
 		os.Exit(1)
 	}
 
@@ -59,3 +59,4 @@ func main() {
 	slog.Info(fmt.Sprintf("server listening on %v", server.Addr))
 	_ = server.ListenAndServe()
 }
+

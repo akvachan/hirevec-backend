@@ -11,13 +11,19 @@ import (
 var HirevecServer *http.Server
 
 var (
-	routePosition           = "/api/v0/positions/{id}"
-	routePositions          = "/api/v0/positions/"
-	routeCandidate          = "/api/v0/candidates/{id}"
-	routeCandidates         = "/api/v0/candidates/"
-	routeCandidatesReaction = "/api/v0/candidates/{id}/reactions"
-	routeRecruitersReaction = "/api/v0/recruiters/{id}/reactions"
-	routeMatches            = "/api/v0/matches/"
+	routePosition           = "/positions/{id}"
+	routePositions          = "/positions"
+	routeCandidate          = "/candidates/{id}"
+	routeCandidates         = "/candidates"
+	routeCandidatesReaction = "/candidates/{id}/reactions"
+	routeRecruitersReaction = "/recruiters/{id}/reactions"
+	routeMatches            = "/matches"
+)
+
+var (
+	routerAPI       = http.NewServeMux()
+	routerV0        = http.NewServeMux()
+	routerEndpoints = http.NewServeMux()
 )
 
 func registerRoute(
@@ -30,15 +36,16 @@ func registerRoute(
 }
 
 func registerRoutes() *http.ServeMux {
-	r := http.NewServeMux()
+	registerRoute(routerEndpoints, http.MethodGet, routePositions, handleGetPositions)
+	registerRoute(routerEndpoints, http.MethodGet, routePosition, handleGetPosition)
+	registerRoute(routerEndpoints, http.MethodGet, routeCandidates, handleGetCandidates)
+	registerRoute(routerEndpoints, http.MethodGet, routeCandidate, handleGetCandidate)
+	registerRoute(routerEndpoints, http.MethodPost, routeCandidatesReaction, handlePostCandidateReaction)
+	registerRoute(routerEndpoints, http.MethodPost, routeRecruitersReaction, handlePostRecruiterReaction)
+	registerRoute(routerEndpoints, http.MethodPost, routeMatches, handlePostMatch)
 
-	registerRoute(r, http.MethodGet, routePositions, handleGetPositions)
-	registerRoute(r, http.MethodGet, routePosition, handleGetPosition)
-	registerRoute(r, http.MethodGet, routeCandidates, handleGetCandidates)
-	registerRoute(r, http.MethodGet, routeCandidate, handleGetCandidate)
-	registerRoute(r, http.MethodPost, routeCandidatesReaction, handlePostCandidateReaction)
-	registerRoute(r, http.MethodPost, routeRecruitersReaction, handlePostRecruiterReaction)
-	registerRoute(r, http.MethodPost, routeMatches, handlePostMatch)
+	routerAPI.Handle("/api/", http.StripPrefix("/api", routerV0))
+	routerV0.Handle("/v0/", http.StripPrefix("/v0", routerEndpoints))
 
-	return r
+	return routerAPI
 }

@@ -60,7 +60,7 @@ func TestPostMatchHandler_Success(t *testing.T) {
 	}
 	body, _ := json.Marshal(reqBody)
 
-	resp, err := http.Post(fmt.Sprintf("%s/matches/", baseURL), "application/json", bytes.NewReader(body))
+	resp, err := http.Post(fmt.Sprintf("%s/matches", baseURL), "application/json", bytes.NewReader(body))
 	if err != nil {
 		t.Fatalf("POST request failed: %v", err)
 	}
@@ -95,7 +95,7 @@ func TestPostMatchHandler_InvalidCandidateID(t *testing.T) {
 	}
 	body, _ := json.Marshal(reqBody)
 
-	resp, err := http.Post(fmt.Sprintf("%s/matches/", baseURL), "application/json", bytes.NewReader(body))
+	resp, err := http.Post(fmt.Sprintf("%s/matches", baseURL), "application/json", bytes.NewReader(body))
 	if err != nil {
 		t.Fatalf("POST request failed: %v", err)
 	}
@@ -136,7 +136,7 @@ func TestPostMatchHandler_InvalidPositionID(t *testing.T) {
 	}
 	body, _ := json.Marshal(reqBody)
 
-	resp, err := http.Post(fmt.Sprintf("%s/matches/", baseURL), "application/json", bytes.NewReader(body))
+	resp, err := http.Post(fmt.Sprintf("%s/matches", baseURL), "application/json", bytes.NewReader(body))
 	if err != nil {
 		t.Fatalf("POST request failed: %v", err)
 	}

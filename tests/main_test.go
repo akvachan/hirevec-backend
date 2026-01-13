@@ -40,9 +40,9 @@ func TestMain(m *testing.M) {
 	)
 	slog.SetDefault(hirevecServer.HirevecLogger)
 
-	dsn := os.Getenv("TEST_DATABASE_URL")
+	dsn := os.Getenv("TEST_DB_URL")
 	if dsn == "" {
-		slog.Error("TEST_DATABASE_URL is not set")
+		slog.Error("TEST_DB_URL is not set")
 		os.Exit(1)
 	}
 
