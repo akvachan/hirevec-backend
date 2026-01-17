@@ -1,12 +1,12 @@
 ## Run server
-- Setup development PGSQL database
+- Setup development PGSQL database, refer to [this](#setup-pgsql) section.
 - Inside the root of the repository:
 ```
 go run cmd/server/main.go
 ```
 
 ## Tests
-- Setup test PGSQL database, refer to [this](setup-pgsql) section
+- Setup test PGSQL database, refer to [this](#setup-pgsql) section.
 - Run tests with:
 ```
 cd tests/
