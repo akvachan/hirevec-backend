@@ -29,24 +29,31 @@
 | description | TEXT  | NOT NULL    |
 | company     | TEXT  |             |
 
-### Candidates' reactions
+### general.reaction_type_enum
+| Name               | Size | Elements |
+|--------------------|------|----------|
+| reaction_type_enum | 4    | positive+|
+|                    |      | negative+|
+|                    |      | neutral  |
+
+### general.candidates 
 | Column         | Type                | Constraints                |
 | -------------  | ------------------- | -------------------------- |
 | candidate\_id  | INT                 | PK, FK, ON DELETE CASCADE  |
 | position\_id   | INT                 | PK, FK, ON DELETE CASCADE  |
-| reaction\_type | ENUM(like, dislike) | NOT NULL                   |
+| reaction\_type | reaction_type_enum  | NOT NULL                   |
 | created\_at    | TIMESTAMP           | NOT NULL, DEFAULT `NOW()`  |
 
-### Recruiters' reactions
+### general.recruiters_reactions 
 | Column         | Type                | Constraints                |
 | -------------  | ------------------- | -------------------------- |
 | recruiter\_id  | INT                 | PK, FK, ON DELETE CASCADE  |
 | position\_id   | INT                 | PK, FK, ON DELETE CASCADE  |
 | candidate\_id  | INT                 | PK, FK, ON DELETE CASCADE  |
-| reaction\_type | ENUM(like, dislike) | NOT NULL                   |
+| reaction\_type | reaction_type_enum  | NOT NULL                   |
 | created\_at    | TIMESTAMP           | NOT NULL, DEFAULT `NOW()`  |
 
-### Matches
+### general.matches
 | Column        | Type      | Constraints                   |
 | ------------  | --------- | ----------------------------- |
 | candidate\_id | INT       | PK, FK, ON DELETE CASCADE     |

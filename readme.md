@@ -4,7 +4,32 @@
 - For contribution guidelines, see [contributing.md](./contributing.md)
 - For general architectural overview, see [architecture.md](./docs/architecture.md)
 
-## Features
+## Server Features
+- [ ] OpenAPI specification
+- [ ] Swagger UI
+- [ ] Traces and server metrics via 'otel'
+- [ ] Structured logs via 'log/slog'
+- [ ] REST for public endpoints
+- [ ] gRPC for internal endpoints
+- [ ] GraphQL for complex UIs
+- [ ] Full server configuration in a JSON 
+- [ ] Kubernetes-ready
+- [ ] CI/CD-ready
+- [ ] Tests coverage >=75%
+- [ ] PASETO authentication
+- [ ] Cedar policy-based authorization
+- [ ] Extensive middleware: 
+    - [ ] Recovery
+    - [ ] Request ID
+    - [ ] Logging
+    - [ ] Rate Limiting
+    - [ ] Security Headers
+    - [ ] Authentication
+    - [ ] Authorization
+    - [ ] Timeout
+    - [ ] Payload Limiting
+
+## Application Features
 - [ ] No registration
 - [ ] No ads 
 - [ ] No manual filters

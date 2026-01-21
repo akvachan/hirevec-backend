@@ -39,7 +39,7 @@ CREATE TABLE IF NOT EXISTS general.positions (
     description TEXT NOT NULL,
     company TEXT
 );
-CREATE TYPE reaction_type AS ENUM ('like', 'dislike');
+CREATE TYPE general.reaction_type AS ENUM ('positive', 'negative', 'neutral');
 CREATE TABLE IF NOT EXISTS general.candidates_reactions (
     candidate_id INT NOT NULL REFERENCES general.candidates(id) ON DELETE CASCADE,
     position_id INT NOT NULL REFERENCES general.positions(id) ON DELETE CASCADE,

@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Arsenii Kvachan. All Rights Reserved. MIT License.
+// Copyright (c) 2026 Arsenii Kvachan. MIT License.
 
 package hirevec_test
 
@@ -58,7 +58,7 @@ func TestMain(m *testing.M) {
 
 	hirevecDB.HirevecDatabase = testDB
 
-	ts := httptest.NewServer(hirevecServer.GetMainHandler())
+	ts := httptest.NewServer(hirevecServer.GetRootRouter())
 	defer ts.Close()
 	baseURL = ts.URL + "/api/v0"
 

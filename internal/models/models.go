@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Arsenii Kvachan. All Rights Reserved. MIT License.
+// Copyright (c) 2026 Arsenii Kvachan. MIT License.
 
 // Package models implements basic data structures and structs used throughout the backend
 package models
@@ -16,24 +16,14 @@ type Match struct {
 type ReactionType string
 
 const (
-	Like    ReactionType = "like"
-	Dislike ReactionType = "dislike"
+	Positive ReactionType = "positive"
+	Negative ReactionType = "negative"
 )
 
 type CandidateReaction struct {
 	CandidateID  int
 	PositionID   int
 	ReactionType string
-}
-
-type PostCandidatesReactionRequest struct {
-	PositionID   string       `json:"position_id"`
-	ReactionType ReactionType `json:"reaction_type"`
-}
-
-type PostMatchRequest struct {
-	PositionID  string `json:"position_id"`
-	CandidateID string `json:"candidate_id"`
 }
 
 type RecruiterReaction struct {
@@ -43,7 +33,19 @@ type RecruiterReaction struct {
 	ReactionType string
 }
 
-type PostRecruitersReactionRequest struct {
+// Post structs
+
+type PostMatchRequest struct {
+	PositionID  string `json:"position_id"`
+	CandidateID string `json:"candidate_id"`
+}
+
+type PostCandidateReactionRequest struct {
+	PositionID   string       `json:"position_id"`
+	ReactionType ReactionType `json:"reaction_type"`
+}
+
+type PostRecruiterReactionRequest struct {
 	PositionID   string       `json:"position_id"`
 	CandidateID  string       `json:"candidate_id"`
 	ReactionType ReactionType `json:"reaction_type"`

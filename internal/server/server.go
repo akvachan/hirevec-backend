@@ -9,6 +9,8 @@ import (
 	"time"
 )
 
+var HirevecServer *http.Server
+
 type ShutdownConfig struct {
 	ReadinessDelay time.Duration
 	GracePeriod    time.Duration

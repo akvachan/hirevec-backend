@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Arsenii Kvachan. All Rights Reserved. MIT License.
+// Copyright (c) 2026 Arsenii Kvachan. MIT License.
 
 package server
 
@@ -42,6 +42,7 @@ func writeSuccessResponse(w http.ResponseWriter, status int, data any) {
 func writeErrorResponse(w http.ResponseWriter, status int, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
+	http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 	_ = json.NewEncoder(w).Encode(
 		ErrorAPIResponse{
 			Status:  "error",
@@ -50,7 +51,7 @@ func writeErrorResponse(w http.ResponseWriter, status int, message string) {
 	)
 }
 
-func writeFailResponse(w http.ResponseWriter, status int, message any) {
+func writeFailResponse(w http.ResponseWriter, status int, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(
@@ -73,12 +74,8 @@ func decodeJSON(r *http.Request, outData any) error {
 	return nil
 }
 
-// GetMainHandler is a function that assembles all routes and applies middleware.
-func GetMainHandler() http.Handler {
-	mainRouter := registerRoutes()
-	mainHandler := getMaxBytesMiddleware(mainRouter)
-	mainHandler = getLoggingMiddleware()(mainHandler)
-	return mainHandler
+func handleHealth(w http.ResponseWriter, r *http.Request) {
+	writeSuccessResponse(w, http.StatusOK, nil)
 }
 
 func handleGetPosition(w http.ResponseWriter, r *http.Request) {
@@ -174,7 +171,7 @@ func handleGetCandidates(w http.ResponseWriter, r *http.Request) {
 }
 
 func handlePostCandidateReaction(w http.ResponseWriter, r *http.Request) {
-	var req models.PostCandidatesReactionRequest
+	var req models.PostCandidateReactionRequest
 
 	if err := decodeJSON(r, &req); err != nil {
 		writeFailResponse(w, http.StatusBadRequest, "malformed request")
@@ -210,7 +207,7 @@ func handlePostCandidateReaction(w http.ResponseWriter, r *http.Request) {
 }
 
 func handlePostRecruiterReaction(w http.ResponseWriter, r *http.Request) {
-	var req models.PostRecruitersReactionRequest
+	var req models.PostRecruiterReactionRequest
 
 	if err := decodeJSON(r, &req); err != nil {
 		writeFailResponse(w, http.StatusBadRequest, "malformed request")

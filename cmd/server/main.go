@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Arsenii Kvachan. All Rights Reserved. MIT License.
+// Copyright (c) 2026 Arsenii Kvachan. MIT License.
 
 package main
 
@@ -50,7 +50,7 @@ func main() {
 
 	server := &http.Server{
 		Addr:         "localhost:8080",
-		Handler:      hirevecServer.GetMainHandler(),
+		Handler:      hirevecServer.GetRootRouter(),
 		ReadTimeout:  2 * time.Second,
 		WriteTimeout: 2 * time.Second,
 		BaseContext: func(_ net.Listener) context.Context {

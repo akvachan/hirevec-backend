@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Arsenii Kvachan. All Rights Reserved. MIT License.
+// Copyright (c) 2026 Arsenii Kvachan. MIT License.
 
 // Package utils implements miscellaneous helpful routines
 package utils

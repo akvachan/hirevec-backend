@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Arsenii Kvachan. All Rights Reserved. MIT License.
+// Copyright (c) 2026 Arsenii Kvachan. MIT License.
 
 // Package server implements basic routing, middleware, handlers and validation
 package server
@@ -6,46 +6,85 @@ package server
 import (
 	"fmt"
 	"net/http"
+	"strings"
 )
 
-var HirevecServer *http.Server
-
-var (
-	routePosition           = "/positions/{id}"
-	routePositions          = "/positions"
-	routeCandidate          = "/candidates/{id}"
-	routeCandidates         = "/candidates"
-	routeCandidatesReaction = "/candidates/{id}/reactions"
-	routeRecruitersReaction = "/recruiters/{id}/reactions"
-	routeMatches            = "/matches"
-)
-
-var (
-	routerAPI       = http.NewServeMux()
-	routerV0        = http.NewServeMux()
-	routerEndpoints = http.NewServeMux()
-)
-
-func registerRoute(
-	router *http.ServeMux,
-	method string,
-	route string,
-	handler func(http.ResponseWriter, *http.Request),
-) {
-	router.HandleFunc(fmt.Sprintf("%v %v", method, route), handler)
+type router struct {
+	mux *http.ServeMux
 }
 
-func registerRoutes() *http.ServeMux {
-	registerRoute(routerEndpoints, http.MethodGet, routePositions, handleGetPositions)
-	registerRoute(routerEndpoints, http.MethodGet, routePosition, handleGetPosition)
-	registerRoute(routerEndpoints, http.MethodGet, routeCandidates, handleGetCandidates)
-	registerRoute(routerEndpoints, http.MethodGet, routeCandidate, handleGetCandidate)
-	registerRoute(routerEndpoints, http.MethodPost, routeCandidatesReaction, handlePostCandidateReaction)
-	registerRoute(routerEndpoints, http.MethodPost, routeRecruitersReaction, handlePostRecruiterReaction)
-	registerRoute(routerEndpoints, http.MethodPost, routeMatches, handlePostMatch)
+type apiVersion int
 
-	routerAPI.Handle("/api/", http.StripPrefix("/api", routerV0))
-	routerV0.Handle("/v0/", http.StripPrefix("/v0", routerEndpoints))
+const v0 apiVersion = 0
 
-	return routerAPI
+type route struct {
+	method          string
+	path            string
+	apiVersion      apiVersion
+	handler         http.HandlerFunc
+	middlewareGroup []middleware
+}
+
+func newRouter() *router {
+	return &router{
+		mux: http.NewServeMux(),
+	}
+}
+
+func (r *router) addRoutes(routes ...route) {
+	for _, route := range routes {
+		pattern := fmt.Sprintf(
+			"%s /api/v%d/%s",
+			route.method,
+			route.apiVersion,
+			strings.TrimPrefix(route.path, "/"),
+		)
+		handler := chain(route.handler, route.middlewareGroup...)
+		r.mux.Handle(pattern, handler)
+	}
+}
+
+func GetRootRouter() *http.ServeMux {
+	rootMux := http.NewServeMux()
+	apiRouter := newRouter()
+	apiRouter.addRoutes(
+		route{
+			method:          http.MethodGet,
+			path:            "health",
+			apiVersion:      v0,
+			handler:         handleHealth,
+			middlewareGroup: middlewareGroupPublic,
+		},
+		route{
+			method:          http.MethodGet,
+			path:            "positions",
+			apiVersion:      v0,
+			handler:         handleGetPositions,
+			middlewareGroup: middlewareGroupProtected,
+		},
+		route{
+			method:          http.MethodGet,
+			path:            "positions/{id}",
+			apiVersion:      v0,
+			handler:         handleGetPosition,
+			middlewareGroup: middlewareGroupProtected,
+		},
+		route{
+			method:          http.MethodGet,
+			path:            "candidates",
+			apiVersion:      v0,
+			handler:         handleGetCandidates,
+			middlewareGroup: middlewareGroupProtected,
+		},
+		route{
+			method:          http.MethodGet,
+			path:            "candidates/{id}",
+			apiVersion:      v0,
+			handler:         handleGetCandidate,
+			middlewareGroup: middlewareGroupProtected,
+		},
+	)
+	rootMux.Handle("/api/", apiRouter.mux)
+
+	return rootMux
 }

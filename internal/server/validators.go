@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Arsenii Kvachan. All Rights Reserved. MIT License.
+// Copyright (c) 2026 Arsenii Kvachan. MIT License.
 
 // Package server implements basic routing, middleware, handlers and validation
 package server
@@ -63,7 +63,7 @@ func validateOffset(strOffset string) (int, error) {
 
 func validateReactionType(rtype models.ReactionType) (string, error) {
 	switch rtype {
-	case models.Like, models.Dislike:
+	case models.Positive, models.Negative:
 		return string(rtype), nil
 	default:
 		return "", errors.New("invalid reaction type")
