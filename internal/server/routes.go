@@ -10,81 +10,115 @@ import (
 )
 
 type router struct {
-	mux *http.ServeMux
+	mux    *http.ServeMux
+	prefix string
 }
 
-type apiVersion int
+type apiVersion uint8
 
 const v0 apiVersion = 0
 
 type route struct {
-	method          string
-	path            string
-	apiVersion      apiVersion
-	handler         http.HandlerFunc
-	middlewareGroup []middleware
+	method      string
+	path        string
+	apiVersion  apiVersion
+	handler     http.HandlerFunc
+	middleware  []middleware
+	description string
 }
 
-func newRouter() *router {
-	return &router{
-		mux: http.NewServeMux(),
+func newRouter(rootMux *http.ServeMux, prefix string) *router {
+	if strings.HasPrefix(prefix, "/") {
+		panic("prefix cannot have a leading / (slash)")
 	}
+	if strings.HasSuffix(prefix, "/") {
+		panic("prefix cannot have a trailing / (slash)")
+	}
+
+	r := &router{
+		mux:    http.NewServeMux(),
+		prefix: prefix,
+	}
+
+	rootMux.Handle("/"+prefix+"/", r.mux)
+
+	return r
 }
 
 func (r *router) addRoutes(routes ...route) {
 	for _, route := range routes {
+		if route.handler == nil {
+			panic("handler cannot be nil")
+		}
+		if strings.HasPrefix(route.path, "/") {
+			panic("path cannot have a leading / (slash)")
+		}
+		if strings.HasSuffix(route.path, "/") {
+			panic("path cannot have a trailing / (slash)")
+		}
+		if route.description == "" {
+			panic("description cannot be empty")
+		}
+
 		pattern := fmt.Sprintf(
-			"%s /api/v%d/%s",
+			"%s /%s/v%d/%s",
 			route.method,
+			r.prefix,
 			route.apiVersion,
-			strings.TrimPrefix(route.path, "/"),
+			route.path,
 		)
-		handler := chain(route.handler, route.middlewareGroup...)
+
+		handler := chain(route.handler, route.middleware...)
 		r.mux.Handle(pattern, handler)
 	}
 }
 
 func GetRootRouter() *http.ServeMux {
 	rootMux := http.NewServeMux()
-	apiRouter := newRouter()
+
+	apiRouter := newRouter(rootMux, "api")
 	apiRouter.addRoutes(
 		route{
-			method:          http.MethodGet,
-			path:            "health",
-			apiVersion:      v0,
-			handler:         handleHealth,
-			middlewareGroup: middlewareGroupPublic,
+			method:      http.MethodGet,
+			path:        "health",
+			apiVersion:  v0,
+			handler:     handleHealth,
+			middleware:  middlewareGroupPublic,
+			description: "Health check endpoint",
 		},
 		route{
-			method:          http.MethodGet,
-			path:            "positions",
-			apiVersion:      v0,
-			handler:         handleGetPositions,
-			middlewareGroup: middlewareGroupProtected,
+			method:      http.MethodGet,
+			path:        "positions",
+			apiVersion:  v0,
+			handler:     handleGetPositions,
+			middleware:  middlewareGroupProtected,
+			description: "List all positions",
 		},
 		route{
-			method:          http.MethodGet,
-			path:            "positions/{id}",
-			apiVersion:      v0,
-			handler:         handleGetPosition,
-			middlewareGroup: middlewareGroupProtected,
+			method:      http.MethodGet,
+			path:        "positions/{id}",
+			apiVersion:  v0,
+			handler:     handleGetPosition,
+			middleware:  middlewareGroupProtected,
+			description: "Get position by ID",
 		},
 		route{
-			method:          http.MethodGet,
-			path:            "candidates",
-			apiVersion:      v0,
-			handler:         handleGetCandidates,
-			middlewareGroup: middlewareGroupProtected,
+			method:      http.MethodGet,
+			path:        "candidates",
+			apiVersion:  v0,
+			handler:     handleGetCandidates,
+			middleware:  middlewareGroupProtected,
+			description: "List all candidates",
 		},
 		route{
-			method:          http.MethodGet,
-			path:            "candidates/{id}",
-			apiVersion:      v0,
-			handler:         handleGetCandidate,
-			middlewareGroup: middlewareGroupProtected,
+			method:      http.MethodGet,
+			path:        "candidates/{id}",
+			apiVersion:  v0,
+			handler:     handleGetCandidate,
+			middleware:  middlewareGroupProtected,
+			description: "Get candidate by ID",
 		},
 	)
-	rootMux.Handle("/api/", apiRouter.mux)
 
 	return rootMux
 }

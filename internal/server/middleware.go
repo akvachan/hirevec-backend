@@ -27,15 +27,7 @@ var (
 	)
 )
 
-type responseWriter struct {
-	http.ResponseWriter
-	status int
-}
-
-func (rw *responseWriter) WriteHeader(code int) {
-	rw.status = code
-	rw.ResponseWriter.WriteHeader(code)
-}
+type middleware func(http.Handler) http.Handler
 
 func chain(handler http.HandlerFunc, middlewares ...middleware) http.Handler {
 	wrapped := http.Handler(handler)
@@ -45,7 +37,15 @@ func chain(handler http.HandlerFunc, middlewares ...middleware) http.Handler {
 	return wrapped
 }
 
-type middleware func(http.Handler) http.Handler
+type responseWriter struct {
+	http.ResponseWriter
+	status int
+}
+
+func (rw *responseWriter) WriteHeader(code int) {
+	rw.status = code
+	rw.ResponseWriter.WriteHeader(code)
+}
 
 func middlewareErrorHandling(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

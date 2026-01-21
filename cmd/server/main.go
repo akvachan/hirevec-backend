@@ -15,6 +15,7 @@ import (
 	hirevecDB "github.com/akvachan/hirevec-backend/internal/db"
 	hirevecServer "github.com/akvachan/hirevec-backend/internal/server"
 	hirevecUtils "github.com/akvachan/hirevec-backend/internal/utils"
+
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
@@ -71,6 +72,6 @@ func main() {
 
 	stopOngoing()
 	if err != nil {
-		slog.Error("Server exited with error", "err", err)
+		slog.Error("server exited with error", "err", err)
 	}
 }

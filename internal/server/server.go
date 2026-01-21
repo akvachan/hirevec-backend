@@ -37,12 +37,12 @@ func RunHTTPServer(
 
 	select {
 	case <-sigCtx.Done():
-		slog.Info("Shutdown signal received")
+		slog.Info("shutdown signal received")
 	case err := <-errCh:
 		return err
 	}
 
-	slog.Info("Draining readiness")
+	slog.Info("draining readiness")
 	select {
 	case <-time.After(cfg.ReadinessDelay):
 	case <-sigCtx.Done():
@@ -52,7 +52,7 @@ func RunHTTPServer(
 	defer cancel()
 
 	if err := server.Shutdown(shutdownCtx); err != nil {
-		slog.Warn("Graceful shutdown failed, forcing exit", "err", err)
+		slog.Warn("graceful shutdown failed, forcing exit", "err", err)
 
 		select {
 		case <-time.After(cfg.ForcePeriod):
