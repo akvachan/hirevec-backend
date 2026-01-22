@@ -1,4 +1,5 @@
-// Copyright (c) 2026 Arsenii Kvachan. MIT License.
+// Copyright (c) 2026 Arsenii Kvachan
+// SPDX-License-Identifier: MIT
 
 // Package server implements the HTTP transport layer, providing RESTful endpoints.
 package server

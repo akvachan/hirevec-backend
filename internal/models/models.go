@@ -1,4 +1,5 @@
-// Copyright (c) 2026 Arsenii Kvachan. MIT License.
+// Copyright (c) 2026 Arsenii Kvachan
+// SPDX-License-Identifier: MIT
 
 // Package models implements basic data structures and structs used throughout the backend.
 package models

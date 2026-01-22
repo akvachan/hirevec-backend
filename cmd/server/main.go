@@ -1,4 +1,5 @@
-// Copyright (c) 2026 Arsenii Kvachan. MIT License.
+// Copyright (c) 2026 Arsenii Kvachan
+// SPDX-License-Identifier: MIT
 
 package main
 

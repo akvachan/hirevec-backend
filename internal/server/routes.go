@@ -1,4 +1,5 @@
-// Copyright (c) 2026 Arsenii Kvachan. MIT License.
+// Copyright (c) 2026 Arsenii Kvachan
+// SPDX-License-Identifier: MIT
 
 // Package server implements the HTTP transport layer, providing RESTful endpoints.
 package server
@@ -20,10 +21,10 @@ type apiVersion uint8
 
 const (
 	// NoVersion is a sentinel value used to indicate that a route should not have a /vN/ segment in its URL.
-	NoVersion apiVersion = 255
+	NoVersion apiVersion = 0
 
-	// v0 represents the initial development version of the API.
-	v0 apiVersion = 0
+	// v1 represents the initial development version of the API.
+	v1 apiVersion = 1
 )
 
 // route defines the configuration for a single API endpoint.
@@ -99,7 +100,7 @@ func GetRootRouter() *http.ServeMux {
 		route{
 			method:      http.MethodGet,
 			path:        "health",
-			apiVersion:  v0,
+			apiVersion:  v1,
 			handler:     handleHealth,
 			middleware:  middlewareGroupPublic,
 			description: "Health check endpoint",
@@ -107,7 +108,7 @@ func GetRootRouter() *http.ServeMux {
 		route{
 			method:      http.MethodGet,
 			path:        "positions",
-			apiVersion:  v0,
+			apiVersion:  v1,
 			handler:     handleGetPositions,
 			middleware:  middlewareGroupProtected,
 			description: "List all positions",
@@ -115,7 +116,7 @@ func GetRootRouter() *http.ServeMux {
 		route{
 			method:      http.MethodGet,
 			path:        "positions/{id}",
-			apiVersion:  v0,
+			apiVersion:  v1,
 			handler:     handleGetPosition,
 			middleware:  middlewareGroupProtected,
 			description: "Get position by ID",
@@ -123,7 +124,7 @@ func GetRootRouter() *http.ServeMux {
 		route{
 			method:      http.MethodGet,
 			path:        "candidates",
-			apiVersion:  v0,
+			apiVersion:  v1,
 			handler:     handleGetCandidates,
 			middleware:  middlewareGroupProtected,
 			description: "List all candidates",
@@ -131,7 +132,7 @@ func GetRootRouter() *http.ServeMux {
 		route{
 			method:      http.MethodGet,
 			path:        "candidates/{id}",
-			apiVersion:  v0,
+			apiVersion:  v1,
 			handler:     handleGetCandidate,
 			middleware:  middlewareGroupProtected,
 			description: "Get candidate by ID",
