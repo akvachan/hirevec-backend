@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 )
 
 // router wraps a standard http.ServeMux to provide prefixed and versioned routing.
@@ -98,43 +99,58 @@ func GetRootRouter() *http.ServeMux {
 	apiRouter := newRouter(rootMux, "api")
 	apiRouter.addRoutes(
 		route{
-			method:      http.MethodGet,
-			path:        "health",
-			apiVersion:  v1,
-			handler:     handleHealth,
-			middleware:  middlewareGroupPublic,
+			method:     http.MethodGet,
+			path:       "health",
+			apiVersion: v1,
+			handler:    handleHealth,
+			middleware: append(
+				middlewareGroupPublic,
+				middlewareRateLimit(60, time.Minute),
+			),
 			description: "Health check endpoint",
 		},
 		route{
-			method:      http.MethodGet,
-			path:        "positions",
-			apiVersion:  v1,
-			handler:     handleGetPositions,
-			middleware:  middlewareGroupProtected,
+			method:     http.MethodGet,
+			path:       "positions",
+			apiVersion: v1,
+			handler:    handleGetPositions,
+			middleware: append(
+				middlewareGroupProtected,
+				middlewareRateLimit(60, time.Minute),
+			),
 			description: "List all positions",
 		},
 		route{
-			method:      http.MethodGet,
-			path:        "positions/{id}",
-			apiVersion:  v1,
-			handler:     handleGetPosition,
-			middleware:  middlewareGroupProtected,
+			method:     http.MethodGet,
+			path:       "positions/{id}",
+			apiVersion: v1,
+			handler:    handleGetPosition,
+			middleware: append(
+				middlewareGroupProtected,
+				middlewareRateLimit(120, time.Minute),
+			),
 			description: "Get position by ID",
 		},
 		route{
-			method:      http.MethodGet,
-			path:        "candidates",
-			apiVersion:  v1,
-			handler:     handleGetCandidates,
-			middleware:  middlewareGroupProtected,
+			method:     http.MethodGet,
+			path:       "candidates",
+			apiVersion: v1,
+			handler:    handleGetCandidates,
+			middleware: append(
+				middlewareGroupProtected,
+				middlewareRateLimit(60, time.Minute),
+			),
 			description: "List all candidates",
 		},
 		route{
-			method:      http.MethodGet,
-			path:        "candidates/{id}",
-			apiVersion:  v1,
-			handler:     handleGetCandidate,
-			middleware:  middlewareGroupProtected,
+			method:     http.MethodGet,
+			path:       "candidates/{id}",
+			apiVersion: v1,
+			handler:    handleGetCandidate,
+			middleware: append(
+				middlewareGroupProtected,
+				middlewareRateLimit(120, time.Minute),
+			),
 			description: "Get candidate by ID",
 		},
 	)
