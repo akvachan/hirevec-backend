@@ -1,30 +1,17 @@
 // Copyright (c) 2026 Arsenii Kvachan
 // SPDX-License-Identifier: MIT
 
-// Package auth deals with authentication and authorization
-package auth
+// Package vault deals with authentication and authorization.
+package vault
 
 import (
-	"crypto/rand"
-	"encoding/base64"
 	"errors"
 	"fmt"
-	"os"
 	"strconv"
 	"sync"
 	"time"
 
 	"aidanwoods.dev/go-paseto"
-)
-
-var (
-	secretKey              paseto.V4SymmetricKey
-	publicKey              paseto.V4AsymmetricPublicKey
-	privateKey             paseto.V4AsymmetricSecretKey
-	accessTokenParser      paseto.Parser
-	refreshTokenParser     paseto.Parser
-	AccessTokenExpiration  = 30 * time.Minute    // 30 minutes
-	RefreshTokenExpiration = 30 * 24 * time.Hour // 30 days
 )
 
 var stateStore = &StateStore{
@@ -34,8 +21,10 @@ var stateStore = &StateStore{
 type IssuedTokenType string
 
 const (
-	refreshToken IssuedTokenType = "urn:ietf:params:oauth:token-type:refresh_token"
-	accessToken  IssuedTokenType = "urn:ietf:params:oauth:token-type:access_token"
+	refreshToken           IssuedTokenType = "urn:ietf:params:oauth:token-type:refresh_token"
+	accessToken            IssuedTokenType = "urn:ietf:params:oauth:token-type:access_token"
+	RefreshTokenExpiration                 = 30 * 24 * time.Hour
+	AccessTokenExpiration                  = 30 * time.Minute
 )
 
 type StateStore struct {
@@ -74,47 +63,8 @@ type TokenPair struct {
 	Scope        string `json:"scope"`
 }
 
-func InitPaseto() {
-	// For private APIs
-	hirevecSecretKey, exists := os.LookupEnv("HIREVEC_SECRET_KEY")
-	if !exists {
-		panic("HIREVEC_SECRET_KEY is not set")
-	}
-
-	key, err := paseto.V4SymmetricKeyFromHex(hirevecSecretKey)
-	if err != nil {
-		panic("could not instantiate a secret key")
-	}
-	secretKey = key
-
-	// For public APIs
-	hirevecPrivateKey, exists := os.LookupEnv("HIREVEC_PRIVATE_KEY")
-	if !exists {
-		panic("HIREVEC_PRIVATE_KEY is not set")
-	}
-
-	privKey, err := paseto.NewV4AsymmetricSecretKeyFromHex(hirevecPrivateKey)
-	if err != nil {
-		panic("could not instantiate a private key")
-	}
-	privateKey = privKey
-	publicKey = privKey.Public()
-
-	accessTokenParser = paseto.NewParser()
-	accessTokenParser.AddRule(paseto.ForAudience("hirevec-api"))
-	accessTokenParser.AddRule(paseto.IssuedBy("hirevec"))
-	accessTokenParser.AddRule(paseto.NotExpired())
-	accessTokenParser.AddRule(paseto.NotBeforeNbf())
-
-	refreshTokenParser = paseto.NewParser()
-	refreshTokenParser.AddRule(paseto.ForAudience("hirevec-api"))
-	refreshTokenParser.AddRule(paseto.IssuedBy("hirevec"))
-	refreshTokenParser.AddRule(paseto.NotExpired())
-	refreshTokenParser.AddRule(paseto.NotBeforeNbf())
-}
-
-func ParseAccessToken(tokenString string) (*AccessTokenClaims, error) {
-	parsedToken, err := accessTokenParser.ParseV4Public(publicKey, tokenString, nil)
+func (v vault) ParseAccessToken(tokenString string) (*AccessTokenClaims, error) {
+	parsedToken, err := v.AccessTokenParser.ParseV4Public(v.V4AsymetricPublicKey, tokenString, nil)
 	if err != nil {
 		return nil, errors.New("invalid access token")
 	}
@@ -142,8 +92,8 @@ func ParseAccessToken(tokenString string) (*AccessTokenClaims, error) {
 	}, nil
 }
 
-func ParseRefreshToken(tokenString string) (*RefreshTokenClaims, error) {
-	parsedToken, err := refreshTokenParser.ParseV4Local(secretKey, tokenString, nil)
+func (v vault) ParseRefreshToken(tokenString string) (*RefreshTokenClaims, error) {
+	parsedToken, err := v.RefreshTokenParser.ParseV4Local(v.V4SymmetricKey, tokenString, nil)
 	if err != nil {
 		return nil, errors.New("invalid refresh token")
 	}
@@ -188,11 +138,11 @@ func ParseRefreshToken(tokenString string) (*RefreshTokenClaims, error) {
 	}, nil
 }
 
-func GetPublicKey() []byte {
-	return publicKey.ExportBytes()
+func (v vault) GetPublicKey() []byte {
+	return v.V4AsymetricPublicKey.ExportBytes()
 }
 
-func CreateAccessToken(userID uint32, provider string, scope string) (string, error) {
+func (v vault) CreateAccessToken(userID uint32, provider string, scope string) (string, error) {
 	now := time.Now().UTC()
 
 	token := paseto.NewToken()
@@ -213,14 +163,10 @@ func CreateAccessToken(userID uint32, provider string, scope string) (string, er
 
 	token.SetString("scope", scope)
 
-	return token.V4Sign(privateKey, nil), nil
+	return token.V4Sign(v.V4AsymmetricSecretKey, nil), nil
 }
 
-func CreateRefreshToken(
-	userID uint32,
-	provider string,
-	jti string,
-) (string, error) {
+func (v vault) CreateRefreshToken(userID uint32, provider string, jti string) (string, error) {
 	now := time.Now().UTC()
 
 	token := paseto.NewToken()
@@ -240,21 +186,16 @@ func CreateRefreshToken(
 		return "", errors.New("could not set provider")
 	}
 
-	return token.V4Encrypt(secretKey, nil), nil
+	return token.V4Encrypt(v.V4SymmetricKey, nil), nil
 }
 
-func CreateTokenPair(
-	userID uint32,
-	provider string,
-	jti string,
-	scope string,
-) (TokenPair, error) {
-	accessToken, err := CreateAccessToken(userID, provider, scope)
+func (v vault) CreateTokenPair(userID uint32, provider string, jti string, scope string) (TokenPair, error) {
+	accessToken, err := v.CreateAccessToken(userID, provider, scope)
 	if err != nil {
 		return TokenPair{}, errors.New("could not create an access token")
 	}
 
-	refreshToken, err := CreateRefreshToken(userID, provider, jti)
+	refreshToken, err := v.CreateRefreshToken(userID, provider, jti)
 	if err != nil {
 		return TokenPair{}, errors.New("could not create a refresh token")
 	}
@@ -266,55 +207,4 @@ func CreateTokenPair(
 		RefreshToken: refreshToken,
 		Scope:        scope,
 	}, nil
-}
-
-// GenerateStateToken creates and stores a state token
-func GenerateStateToken() (string, error) {
-	b := make([]byte, 32)
-	if _, err := rand.Read(b); err != nil {
-		return "", err
-	}
-	state := base64.URLEncoding.EncodeToString(b)
-
-	stateStore.mu.Lock()
-	stateStore.states[state] = time.Now().Add(10 * time.Minute)
-	stateStore.mu.Unlock()
-
-	return state, nil
-}
-
-// ValidateAndDeleteState checks if state exists and deletes it (one-time use)
-func ValidateAndDeleteState(state string) bool {
-	stateStore.mu.Lock()
-	defer stateStore.mu.Unlock()
-
-	expiry, exists := stateStore.states[state]
-	if !exists {
-		return false
-	}
-	delete(stateStore.states, state)
-
-	return !time.Now().After(expiry)
-}
-
-func CleanupExpiredStates() {
-	stateStore.mu.Lock()
-	defer stateStore.mu.Unlock()
-
-	now := time.Now()
-	for state, expiry := range stateStore.states {
-		if now.After(expiry) {
-			delete(stateStore.states, state)
-		}
-	}
-}
-
-func init() {
-	go func() {
-		ticker := time.NewTicker(5 * time.Minute)
-		defer ticker.Stop()
-		for range ticker.C {
-			CleanupExpiredStates()
-		}
-	}()
 }

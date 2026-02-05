@@ -1,8 +1,7 @@
 // Copyright (c) 2026 Arsenii Kvachan
 // SPDX-License-Identifier: MIT
 
-// Package db provides an interface to the database
-package db
+package store
 
 import (
 	"crypto/rand"
@@ -12,12 +11,14 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/akvachan/hirevec-backend/internal/store/db/models"
 )
 
 // GetPosition retrieves a single position from the database by its unique identifier.
-func GetPosition(positionID uint32) (json.RawMessage, error) {
+func (s store) GetPosition(positionID uint32) (json.RawMessage, error) {
 	var j json.RawMessage
-	err := HirevecDatabase.QueryRow(
+	err := s.Postgres.QueryRow(
 		`
 		SELECT row_to_json(t) 
 		FROM general.positions t
@@ -29,9 +30,9 @@ func GetPosition(positionID uint32) (json.RawMessage, error) {
 }
 
 // GetPositions retrieves a paginated list of all positions, ordered by ID.
-func GetPositions(p Paginator) (json.RawMessage, error) {
+func (s store) GetPositions(p models.Paginator) (json.RawMessage, error) {
 	var j json.RawMessage
-	err := HirevecDatabase.QueryRow(
+	err := s.Postgres.QueryRow(
 		`
 		SELECT COALESCE(json_agg(t), '[]'::json)
 		FROM (
@@ -48,9 +49,9 @@ func GetPositions(p Paginator) (json.RawMessage, error) {
 }
 
 // GetCandidate retrieves a single candidate's details by their ID.
-func GetCandidate(candidateID uint32) (json.RawMessage, error) {
+func (s store) GetCandidate(candidateID uint32) (json.RawMessage, error) {
 	var j json.RawMessage
-	err := HirevecDatabase.QueryRow(
+	err := s.Postgres.QueryRow(
 		`
 		SELECT row_to_json(t) 
 		FROM general.candidates t
@@ -62,9 +63,9 @@ func GetCandidate(candidateID uint32) (json.RawMessage, error) {
 }
 
 // GetCandidates retrieves a paginated list of candidates, ordered by ID.
-func GetCandidates(p Paginator) (json.RawMessage, error) {
+func (s store) GetCandidates(p models.Paginator) (json.RawMessage, error) {
 	var j json.RawMessage
-	err := HirevecDatabase.QueryRow(
+	err := s.Postgres.QueryRow(
 		`
 		SELECT COALESCE(json_agg(t), '[]'::json)
 		FROM (
@@ -81,8 +82,8 @@ func GetCandidates(p Paginator) (json.RawMessage, error) {
 }
 
 // GetUserByProvider retrieves an existing user based on their provider details.
-func GetUserByProvider(provider string, providerUserID string) (userID uint32, err error) {
-	err = HirevecDatabase.QueryRow(
+func (s store) GetUserByProvider(provider string, providerUserID string) (userID uint32, err error) {
+	err = s.Postgres.QueryRow(
 		`
 		SELECT id 
 		FROM general.users 
@@ -96,7 +97,7 @@ func GetUserByProvider(provider string, providerUserID string) (userID uint32, e
 }
 
 // CreateUser generates a unique username and inserts a new user record.
-func CreateUser(user User) (userID uint32, err error) {
+func (s store) CreateUser(user models.User) (userID uint32, err error) {
 	if user.FirstName == "" || user.LastName == "" || user.FullName == "" {
 		return 0, errors.New("empty names provided")
 	}
@@ -113,7 +114,7 @@ func CreateUser(user User) (userID uint32, err error) {
 		hex.EncodeToString(suffix),
 	)
 
-	err = HirevecDatabase.QueryRow(
+	err = s.Postgres.QueryRow(
 		`
 		INSERT INTO general.users (
 			provider,
@@ -135,8 +136,8 @@ func CreateUser(user User) (userID uint32, err error) {
 }
 
 // CreateCandidateReaction records a candidate's interest or reaction to a specific job position.
-func CreateCandidateReaction(r CandidateReaction) error {
-	_, err := HirevecDatabase.Exec(
+func (s store) CreateCandidateReaction(r models.CandidateReaction) error {
+	_, err := s.Postgres.Exec(
 		`
 		INSERT INTO general.candidates_reactions (
 			candidate_id,
@@ -153,8 +154,8 @@ func CreateCandidateReaction(r CandidateReaction) error {
 }
 
 // CreateRecruiterReaction records a recruiter's reaction to a specific candidate for a position.
-func CreateRecruiterReaction(r RecruiterReaction) error {
-	_, err := HirevecDatabase.Exec(
+func (s store) CreateRecruiterReaction(r models.RecruiterReaction) error {
+	_, err := s.Postgres.Exec(
 		`
 		INSERT INTO general.recruiters_reactions (
 			recruiter_id,
@@ -173,8 +174,8 @@ func CreateRecruiterReaction(r RecruiterReaction) error {
 }
 
 // CreateMatch creates a new match record between a candidate and a position when mutual interest is established.
-func CreateMatch(m Match) error {
-	_, err := HirevecDatabase.Exec(
+func (s store) CreateMatch(m models.Match) error {
+	_, err := s.Postgres.Exec(
 		`
 		INSERT INTO general.matches (
 			candidate_id,
@@ -189,8 +190,8 @@ func CreateMatch(m Match) error {
 }
 
 // ValidateActiveSession checks if the JTI exists and is not expired.
-func ValidateActiveSession(jti string) (isSessionRevoked bool, err error) {
-	err = HirevecDatabase.QueryRow(
+func (s store) ValidateActiveSession(jti string) (isSessionRevoked bool, err error) {
+	err = s.Postgres.QueryRow(
 		`
 		SELECT revoked 
 	 	FROM general.refresh_tokens 
@@ -203,8 +204,8 @@ func ValidateActiveSession(jti string) (isSessionRevoked bool, err error) {
 }
 
 // CreateRefreshToken creates a new refresh token record.
-func CreateRefreshToken(userID uint32, expiresAt time.Time) (jti string, err error) {
-	err = HirevecDatabase.QueryRow(
+func (s store) CreateRefreshToken(userID uint32, expiresAt time.Time) (jti string, err error) {
+	err = s.Postgres.QueryRow(
 		`
 		INSERT INTO general.refresh_tokens (
 			user_id,

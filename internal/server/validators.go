@@ -25,7 +25,7 @@ const (
 func ValidateSerialID(strID string) (uint32, error) {
 	id, err := strconv.ParseUint(strID, 10, 32)
 	if err != nil {
-		return 0, ErrCouldNotParseSerialID
+		return 0, ErrFailedToParseSerialID
 	}
 	if id == 0 {
 		return 0, ErrNotPositiveSerialID
@@ -45,7 +45,7 @@ func ValidateLimit(strLimit string) (uint8, error) {
 
 	limit, err := strconv.ParseUint(strLimit, 10, 8)
 	if err != nil {
-		return 0, ErrCouldNotParseLimit
+		return 0, ErrFailedToParseLimit
 	}
 
 	if limit > PageSizeMaxLimit {
@@ -65,7 +65,7 @@ func ValidateOffset(strOffset string) (uint8, error) {
 
 	offset, err := strconv.ParseUint(strOffset, 10, 8)
 	if err != nil {
-		return 0, ErrCouldNotParseOffset
+		return 0, ErrFailedToParseOffset
 	}
 
 	return uint8(offset), nil

@@ -6,6 +6,7 @@ package server
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
@@ -14,7 +15,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/akvachan/hirevec-backend/internal/auth"
+	"github.com/akvachan/hirevec-backend/internal/vault"
 )
 
 type contextKey string
@@ -24,20 +25,41 @@ const (
 	contextKeyClaims contextKey = "claims"
 )
 
-var (
-	// GroupPublic defines the standard stack for all endpoints, including logging, safety, and rate limiting.
-	GroupPublic = []Middleware{
+type RateLimiter struct {
+	MaxRequests uint
+	Window      time.Duration
+}
+
+// PublicMiddleware defines the standard stack for all endpoints, including logging, safety, and rate limiting.
+func PublicMiddleware(r RateLimiter) []Middleware {
+	if r.MaxRequests == 0 || r.Window == 0 {
+		slog.Warn("rate limiter max requests not set, defaulting to 100 per minute")
+		r.MaxRequests = 100
+		r.Window = time.Minute
+	}
+	return []Middleware{
 		ErrorHandling,
 		Logging,
+		RateLimit(r.MaxRequests, r.Window),
 		MaxBytes,
 	}
+}
 
-	// GroupProtected adds authentication and authorization layers to the public middleware stack for restricted endpoints.
-	GroupProtected = append(
-		GroupPublic,
-		Auth,
-	)
-)
+// ProtectedMiddleware adds authentication and authorization layers to the public middleware stack for restricted endpoints.
+func ProtectedMiddleware(r RateLimiter, v vault.Vault) []Middleware {
+	if r.MaxRequests == 0 || r.Window == 0 {
+		slog.Warn("rate limiter max requests not set, defaulting to 100 per minute")
+		r.MaxRequests = 100
+		r.Window = time.Minute
+	}
+	return []Middleware{
+		ErrorHandling,
+		Logging,
+		RateLimit(r.MaxRequests, r.Window),
+		MaxBytes,
+		Auth(v),
+	}
+}
 
 // Middleware represents a function that wraps an http.Handler to provide pre-processing or post-processing logic.
 type Middleware func(http.Handler) http.Handler
@@ -66,7 +88,7 @@ func (rw *responseWriter) WriteHeader(code int) {
 	rw.ResponseWriter.WriteHeader(code)
 }
 
-// ErrorHandling recovers from panics within the request lifecycle and returns a 500 Internal Server Error to the client.
+// ErrorHandling recovers from panics within the request lifecycle.
 func ErrorHandling(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		defer func() {
@@ -86,39 +108,40 @@ func GetUserID(ctx context.Context) (uint32, bool) {
 }
 
 // GetClaims retrieves claims from context.
-func GetClaims(ctx context.Context) (*auth.AccessTokenClaims, bool) {
-	claims, ok := ctx.Value(contextKeyClaims).(*auth.AccessTokenClaims)
+func GetClaims(ctx context.Context) (*vault.AccessTokenClaims, bool) {
+	claims, ok := ctx.Value(contextKeyClaims).(*vault.AccessTokenClaims)
 	return claims, ok
 }
 
 // Auth verifies the identity and permissions of the user making the request.
-func Auth(next http.Handler) http.Handler {
-	handler := func(w http.ResponseWriter, r *http.Request) {
-		authHeader := r.Header.Get("Authorization")
-		bearer, found := strings.CutPrefix(authHeader, "Bearer ")
-		if !found || bearer == "" {
-			WriteFailResponse(w, http.StatusUnauthorized, map[string]string{"authorization": "invalid or missing authorization header"})
-			return
-		}
+func Auth(v vault.Vault) Middleware {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			authHeader := r.Header.Get("Authorization")
+			bearer, found := strings.CutPrefix(authHeader, "Bearer ")
+			if !found || bearer == "" {
+				WriteUnauthorizedResponse(w, AuthInvalidClient, "Bearer token is required")
+				return
+			}
 
-		claims, err := auth.ParseAccessToken(bearer)
-		if err != nil {
-			WriteFailResponse(w, http.StatusUnauthorized, map[string]string{"token": "invalid token"})
-			return
-		}
+			claims, err := v.ParseAccessToken(bearer)
+			if err != nil {
+				WriteAuthErrorResponse(w, AuthInvalidRequest, "invalid access token")
+				return
+			}
 
-		ctx := context.WithValue(r.Context(), contextKeyUserID, claims.UserID)
-		ctx = context.WithValue(ctx, contextKeyClaims, claims)
+			ctx := context.WithValue(r.Context(), contextKeyUserID, claims.UserID)
+			ctx = context.WithValue(ctx, contextKeyClaims, claims)
 
-		next.ServeHTTP(w, r.WithContext(ctx))
+			next.ServeHTTP(w, r.WithContext(ctx))
+		})
 	}
-	return http.HandlerFunc(handler)
 }
 
 // RateLimit implements a simple in-memory request throttler based on the remote IP address.
-func RateLimit(maxRequests int, window time.Duration) func(http.Handler) http.Handler {
+func RateLimit(maxRequests uint, window time.Duration) func(http.Handler) http.Handler {
 	type client struct {
-		count int
+		count uint
 		reset time.Time
 	}
 
@@ -146,11 +169,11 @@ func RateLimit(maxRequests int, window time.Duration) func(http.Handler) http.Ha
 			mu.Unlock()
 
 			remaining := maxRequests - currentCount
-			w.Header().Set("X-RateLimit-Limit", strconv.Itoa(maxRequests))
-			w.Header().Set("X-RateLimit-Remaining", strconv.Itoa(max(0, remaining)))
+			w.Header().Set("X-RateLimit-Limit", fmt.Sprintf("%d", maxRequests))
+			w.Header().Set("X-RateLimit-Remaining", fmt.Sprintf("%d", max(0, remaining)))
 			w.Header().Set("X-RateLimit-Reset", strconv.FormatInt(resetAt.Unix(), 10))
 
-			if remaining < 0 {
+			if remaining == 0 {
 				retryAfter := int(time.Until(resetAt).Seconds())
 				w.Header().Set("Retry-After", strconv.Itoa(max(0, retryAfter)))
 				WriteErrorResponse(w, http.StatusTooManyRequests, "too many requests")

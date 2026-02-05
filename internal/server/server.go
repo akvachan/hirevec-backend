@@ -6,78 +6,85 @@ package server
 
 import (
 	"context"
+	"errors"
 	"log/slog"
+	"net"
 	"net/http"
-	"os/signal"
-	"syscall"
 	"time"
+
+	"github.com/akvachan/hirevec-backend/internal/store"
+	"github.com/akvachan/hirevec-backend/internal/vault"
 )
 
-// HirevecServer holds the active instance of the HTTP server.
-var HirevecServer *http.Server
+const (
+	DefaultReadTimeout  = 2000 * time.Millisecond
+	DefaultWriteTimeout = 2000 * time.Millisecond
+	DefaultGracePeriod  = 5000 * time.Millisecond
+)
 
-// HirevecLogger is the global structured logger for the server package.
-var HirevecLogger *slog.Logger
-
-// ShutdownConfig defines the timing parameters for a controlled server exit.
-type ShutdownConfig struct {
-	// ReadinessDelay is the time to wait after a shutdown signal.
-	ReadinessDelay time.Duration
-
-	// GracePeriod is the maximum time allowed for existing active requests to complete.
-	GracePeriod time.Duration
-
-	// ForcePeriod is a final timeout used if the graceful shutdown fails.
-	ForcePeriod time.Duration
+type ServerConfig struct {
+	Host         string
+	ReadTimeout  time.Duration
+	WriteTimeout time.Duration
+	GracePeriod  time.Duration
 }
 
-// RunHTTPServer starts the HTTP server in a background goroutine and manages its lifecycle.
-func RunHTTPServer(
-	ctx context.Context,
-	server *http.Server,
-	cfg ShutdownConfig,
-) error {
-	sigCtx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
+func Run(ctx context.Context, c ServerConfig, s store.Store, v vault.Vault) error {
+	server := newServer(ctx, c, s, v)
 
+	ln, err := net.Listen("tcp", c.Host)
+	if err != nil {
+		return ErrFailedToBindAddress(c.Host, err)
+	}
+
+	errCh := startServer(server, ln)
+
+	return waitAndShutdown(ctx, server, errCh, c.GracePeriod)
+}
+
+func newServer(ctx context.Context, c ServerConfig, s store.Store, v vault.Vault) *http.Server {
+	return &http.Server{
+		Addr:         c.Host,
+		Handler:      AssembleTree(s, v),
+		ReadTimeout:  c.ReadTimeout,
+		WriteTimeout: c.WriteTimeout,
+		ErrorLog:     slog.NewLogLogger(slog.Default().Handler(), slog.LevelError),
+		BaseContext: func(_ net.Listener) context.Context {
+			return ctx
+		},
+	}
+}
+
+func startServer(server *http.Server, ln net.Listener) chan error {
 	errCh := make(chan error, 1)
-
 	go func() {
 		slog.Info("HTTP server starting", "addr", server.Addr)
-		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		if err := server.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			errCh <- err
 		}
-		close(errCh)
 	}()
-
-	select {
-	case <-sigCtx.Done():
-		slog.Info("shutdown signal received")
-	case err := <-errCh:
-		return err
-	}
-
-	slog.Info("draining readiness")
-	select {
-	case <-time.After(cfg.ReadinessDelay):
-	case <-sigCtx.Done():
-	}
-
-	shutdownCtx, cancel := context.WithTimeout(sigCtx, cfg.GracePeriod)
-	defer cancel()
-
-	if err := server.Shutdown(shutdownCtx); err != nil {
-		slog.Warn("graceful shutdown failed, forcing exit", "err", err)
-
-		select {
-		case <-time.After(cfg.ForcePeriod):
-		case <-sigCtx.Done():
-		}
-
-		return err
-	}
-
-	slog.Info("HTTP server shut down gracefully")
-	return nil
+	slog.Info("HTTP server ready", "addr", server.Addr)
+	return errCh
 }
 
+func waitAndShutdown(ctx context.Context, server *http.Server, errCh chan error, gracePeriod time.Duration) error {
+	select {
+	case <-ctx.Done():
+		slog.Info("shutdown signal received")
+	case err := <-errCh:
+		return ErrFailedToShutdownServer(err)
+	}
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), gracePeriod)
+	defer cancel()
+
+	slog.Info("starting graceful shutdown", "timeout", gracePeriod)
+	if err := server.Shutdown(shutdownCtx); err != nil {
+		slog.Error("graceful shutdown failed, forcing close", "err", err)
+		server.Close()
+		return ErrFailedToShutdownServer(err)
+	}
+
+	slog.Info("HTTP server shutdown complete")
+	return nil
+}

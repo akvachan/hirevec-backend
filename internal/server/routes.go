@@ -10,6 +10,9 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/akvachan/hirevec-backend/internal/store"
+	"github.com/akvachan/hirevec-backend/internal/vault"
 )
 
 // router wraps a standard http.ServeMux to provide prefixed and versioned routing.
@@ -121,112 +124,74 @@ func (r *router) AddRoutes(routes ...Route) {
 	}
 }
 
-// GetRootRouter assembles the complete application routing tree.
-func GetRootRouter() *http.ServeMux {
+// AssembleTree assembles the complete application routing tree.
+func AssembleTree(localStore store.Store, localVault vault.Vault) *http.ServeMux {
 	rootMux := http.NewServeMux()
 	apiRouter := NewRouter(rootMux, "api")
-	apiRouter.AddRoutes(
-		// Route{
-		// 	Methods:    []string{http.MethodGet},
-		// 	Path:       "health",
-		// 	APIVersion: V1,
-		// 	Handler:    CheckHealth,
-		// 	 append(
-		// 		GroupPublic,
-		// 		RateLimit(60, time.Minute),
-		// 	),
-		// 	Description: "Health check endpoint",
-		// },
 
-		// OAuth endpoints
+	apiRouter.AddRoutes(
 		Route{
-			Methods:    []string{http.MethodGet},
-			Path:       "auth/keys",
-			APIVersion: V1,
-			Handler:    GetPublicKeys,
-			Middleware: append(
-				GroupPublic,
-				RateLimit(60, time.Minute),
-			),
+			Methods:     []string{http.MethodGet},
+			Path:        "oauth2/keys",
+			APIVersion:  V1,
+			Handler:     GetPublicKeys(localVault),
+			Middleware:  PublicMiddleware(RateLimiter{MaxRequests: 1000, Window: time.Hour}),
 			Description: "Get server public keys",
 		},
 		Route{
-			Methods:    []string{http.MethodPost},
-			Path:       "oauth2/token",
-			APIVersion: V1,
-			Handler:    TokenEndpoint,
-			Middleware: append(
-				GroupPublic,
-				RateLimit(60, time.Minute),
-			),
+			Methods:     []string{http.MethodPost},
+			Path:        "oauth2/token",
+			APIVersion:  V1,
+			Handler:     CreateAccessToken(localStore, localVault),
+			Middleware:  PublicMiddleware(RateLimiter{MaxRequests: 60, Window: time.Minute}),
 			Description: "Get new access token",
 		},
 		Route{
-			Methods:    []string{http.MethodGet, http.MethodPost},
-			Path:       "oauth2/login/{provider}",
-			APIVersion: V1,
-			Handler:    Login,
-			Middleware: append(
-				GroupPublic,
-				RateLimit(60, time.Hour),
-			),
+			Methods:     []string{http.MethodGet, http.MethodPost},
+			Path:        "oauth2/login/{provider}",
+			APIVersion:  V1,
+			Handler:     Login(localVault),
+			Middleware:  PublicMiddleware(RateLimiter{MaxRequests: 60, Window: time.Minute}),
 			Description: "Authorize via provider",
 		},
 		Route{
-			Methods:    []string{http.MethodGet, http.MethodPost},
-			Path:       "oauth2/callback/{provider}",
-			APIVersion: V1,
-			Handler:    RedirectionEndpoint,
-			Middleware: append(
-				GroupPublic,
-				RateLimit(60, time.Minute),
-			),
+			Methods:     []string{http.MethodGet, http.MethodPost},
+			Path:        "oauth2/callback/{provider}",
+			APIVersion:  V1,
+			Handler:     RedirectProvider(localStore, localVault),
+			Middleware:  PublicMiddleware(RateLimiter{MaxRequests: 60, Window: time.Minute}),
 			Description: "Internal OAuth callback",
 		},
-
-		// Protected resources
 		Route{
-			Methods:    []string{http.MethodGet},
-			Path:       "positions",
-			APIVersion: V1,
-			Handler:    GetPositions,
-			Middleware: append(
-				GroupProtected,
-				RateLimit(60, time.Hour),
-			),
+			Methods:     []string{http.MethodGet},
+			Path:        "positions",
+			APIVersion:  V1,
+			Handler:     GetPositions(localStore),
+			Middleware:  ProtectedMiddleware(RateLimiter{MaxRequests: 60, Window: time.Minute}, localVault),
 			Description: "List all positions",
 		},
 		Route{
-			Methods:    []string{http.MethodGet},
-			Path:       "positions/{id}",
-			APIVersion: V1,
-			Handler:    GetPosition,
-			Middleware: append(
-				GroupProtected,
-				RateLimit(60, time.Minute),
-			),
+			Methods:     []string{http.MethodGet},
+			Path:        "positions/{id}",
+			APIVersion:  V1,
+			Handler:     GetPosition(localStore),
+			Middleware:  ProtectedMiddleware(RateLimiter{MaxRequests: 60, Window: time.Minute}, localVault),
 			Description: "Get position by ID",
 		},
 		Route{
-			Methods:    []string{http.MethodGet},
-			Path:       "candidates/{id}",
-			APIVersion: V1,
-			Handler:    GetCandidate,
-			Middleware: append(
-				GroupProtected,
-				RateLimit(60, time.Minute),
-			),
+			Methods:     []string{http.MethodGet},
+			Path:        "candidates/{id}",
+			APIVersion:  V1,
+			Handler:     GetCandidate(localStore),
+			Middleware:  ProtectedMiddleware(RateLimiter{MaxRequests: 60, Window: time.Minute}, localVault),
 			Description: "Get candidate by ID",
 		},
 		Route{
-			Methods:    []string{http.MethodGet},
-			Path:       "candidates",
-			APIVersion: V1,
-			Handler:    GetCandidates,
-			Middleware: append(
-				GroupProtected,
-				RateLimit(60, time.Hour),
-			),
+			Methods:     []string{http.MethodGet},
+			Path:        "candidates",
+			APIVersion:  V1,
+			Handler:     GetCandidates(localStore),
+			Middleware:  ProtectedMiddleware(RateLimiter{MaxRequests: 60, Window: time.Minute}, localVault),
 			Description: "List all candidates",
 		},
 	)

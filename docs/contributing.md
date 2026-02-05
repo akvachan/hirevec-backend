@@ -2,12 +2,12 @@
 - Setup development PGSQL database, refer to [this](#setup-pgsql) section.
 - Inside the root of the repository:
 ```
-go run cmd/server/main.go
+go run cmd/server
 ```
 
 ## Unit Tests
 ```
-go test ./internal -v
+go test internal -v
 ```
 
 ## Integration Tests

@@ -5,17 +5,19 @@
 package server
 
 import (
-	"errors"
+	"fmt"
 )
 
 var (
-	ErrExtraDataDecoded = errors.New("extra data decoded")
-	ErrCouldNotDecode   = errors.New("could not decode")
-	ErrCouldNotParseSerialID 	= errors.New("id must be an integer")
-	ErrNotPositiveSerialID = errors.New("id must be a positive integer")
-	ErrCouldNotParseLimit = errors.New("limit must be zero or a positive integer")
-	ErrCouldNotParseOffset = errors.New("offset must be zero or a positive integer")
-	ErrNameTooLong = errors.New("name length must be smaller than 128 characters")
-	ErrNameTooShort = errors.New("name length must be bigger than 1 character")
-	ErrNameHasForbiddenChars = errors.New("name contains forbidden characters")
+	ErrExtraDataDecoded       = fmt.Errorf("extra data decoded")
+	ErrFailedToBindAddress    = func(host string, err error) error { return fmt.Errorf("failed to bind to %s: %w", host, err) }
+	ErrFailedToDecode         = fmt.Errorf("could not decode")
+	ErrFailedToParseLimit     = fmt.Errorf("limit must be zero or a positive integer")
+	ErrFailedToParseOffset    = fmt.Errorf("offset must be zero or a positive integer")
+	ErrFailedToParseSerialID  = fmt.Errorf("id must be an integer")
+	ErrFailedToShutdownServer = func(err error) error { return fmt.Errorf("failed to shutdown server: %w", err) }
+	ErrNameHasForbiddenChars  = fmt.Errorf("name contains forbidden characters")
+	ErrNameTooLong            = fmt.Errorf("name length must be smaller than 128 characters")
+	ErrNameTooShort           = fmt.Errorf("name length must be bigger than 1 character")
+	ErrNotPositiveSerialID    = fmt.Errorf("id must be a positive integer")
 )

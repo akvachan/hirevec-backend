@@ -1,8 +1,8 @@
 // Copyright (c) 2026 Arsenii Kvachan
 // SPDX-License-Identifier: MIT
 
-// Package db provides an interface to the database
-package db
+// Package models provides an commond database models
+package models
 
 type Provider string
 
@@ -11,18 +11,14 @@ const (
 	Google Provider = "google"
 )
 
-func (p Provider) IsValid() bool {
-	return p == Apple || p == Google
-}
-
-func (p Provider) Raw() string {
+func (p Provider) Raw() (string, error) {
 	if p == Apple {
-		return "apple"
+		return "apple", nil
 	}
 	if p == Google {
-		return "google"
+		return "google", nil
 	}
-	return ""
+	return "", ErrInvalidProvider
 }
 
 type User struct {

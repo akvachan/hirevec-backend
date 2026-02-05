@@ -11,12 +11,12 @@ import (
 	"strings"
 )
 
-// LoadDotEnv reads a configuration file at the specified path and loads
+// Loadenv reads a configuration file at the specified path and loads
 // its contents into the process's environment variables.
 //
 // The file should follow the KEY=VALUE format. The function ignores empty lines,
 // lines starting with '#', and handles optional quotes around values.
-func LoadDotEnv(path string) error {
+func Loadenv(path string) error {
 	f, err := os.Open(path)
 	if err != nil {
 		return err
@@ -54,4 +54,12 @@ func LoadDotEnv(path string) error {
 	}
 
 	return scanner.Err()
+}
+
+func Getenv(key string, defaultValue string) string {
+	value, exists := os.LookupEnv(key)
+	if !exists {
+		return defaultValue
+	}
+	return value
 }
