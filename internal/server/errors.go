@@ -12,6 +12,9 @@ var (
 	ErrAboutHasForbiddenChars			= fmt.Errorf("`about` field contains forbidden characters")
 	ErrAboutTooLong								= fmt.Errorf("`about` field length must be smaller than 500 characters")
 	ErrAboutTooShort							= fmt.Errorf("`about` field length must be bigger than 1 character")
+	ErrNameHasForbiddenChars			= fmt.Errorf("`name` field contains forbidden characters")
+	ErrNameTooLong								= fmt.Errorf("`name` field length must be smaller than 500 characters")
+	ErrNameTooShort							= fmt.Errorf("`name` field length must be bigger than 1 character")
 	ErrDescriptionRequired				= func(path string) error { return fmt.Errorf("description cannot be empty for route: %s", path) }
 	ErrExtraDataDecoded						= fmt.Errorf("extra data decoded")
 	ErrFailedToAddRoutes         	= func(err error) error { return fmt.Errorf("failed to add routes: %w", err) }

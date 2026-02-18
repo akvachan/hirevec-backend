@@ -5,6 +5,7 @@
 package store
 
 import (
+	"fmt"
 	"database/sql"
 	"encoding/json"
 	"time"
@@ -42,7 +43,7 @@ type StoreConfig struct {
 }
 
 func NewStore(c StoreConfig) (*StoreImpl, error) {
-	dbConnString := "postgresql://" + c.PostgresUser + ":" + c.PostgresPassword + "@" + c.PostgresHost + ":" + string(rune(c.PostgresPort)) + "/" + c.PostgresDB
+	dbConnString := fmt.Sprintf("postgresql://%v:%v@%v:/%v", c.PostgresUser, c.PostgresPassword, c.PostgresHost, c.PostgresPort, c.PostgresDB)
 	database, err := sql.Open("pgx", dbConnString)
 	if err != nil {
 		return nil, ErrFailedToConnectDB(err)
