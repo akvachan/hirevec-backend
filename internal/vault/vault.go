@@ -7,7 +7,6 @@ package vault
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"net/http"
 
 	"aidanwoods.dev/go-paseto"
@@ -69,23 +68,23 @@ func NewVault(ctx context.Context, c VaultConfig) (*VaultImpl, error) {
 	refreshTokenParser.AddRule(paseto.NotExpired())
 	refreshTokenParser.AddRule(paseto.NotBeforeNbf())
 
-	symmetricKey, err := paseto.V4SymmetricKeyFromHex(c.SymmetricKeyHex)
-	if err != nil {
-		slog.Error(
-			"Failed to load a symmetric key",
-			"err", err,
-		)
-		return nil, ErrFailedToLoadSymmetricKey
-	}
+	symmetricKey := paseto.NewV4SymmetricKey()
+	// if err != nil {
+	// 	slog.Error(
+	// 		"Failed to load a symmetric key",
+	// 		"err", err,
+	// 	)
+	// 	return nil, ErrFailedToLoadSymmetricKey
+	// }
 
-	asymmetricKey, err := paseto.NewV4AsymmetricSecretKeyFromHex(c.AsymmetricKeyHex)
-	if err != nil {
-		slog.Error(
-			"Failed to load an asymmetric key",
-			"err", err,
-		)
-		return nil, ErrFailedToLoadAsymmetricKey
-	}
+	asymmetricKey := paseto.NewV4AsymmetricSecretKey()
+	// if err != nil {
+	// 	slog.Error(
+	// 		"Failed to load an asymmetric key",
+	// 		"err", err,
+	// 	)
+	// 	return nil, ErrFailedToLoadAsymmetricKey
+	// }
 
 	googleProvider, err := oidc.NewProvider(ctx, "https://accounts.google.com")
 	if err != nil {
