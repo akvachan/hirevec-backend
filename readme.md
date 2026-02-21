@@ -20,9 +20,6 @@ go run cmd/server/main.go
 ```
 4. You should be able to open API docs site: `http://localhost:8080/api/v1/docs`.
 
-> [!NOTE]
-> The setup script is idempotent.
-
 ### Via Docker
 
 #### Requirements
