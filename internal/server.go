@@ -27,7 +27,7 @@ type ServerConfig struct {
 	GracePeriod  time.Duration
 }
 
-func RunServer(ctx context.Context, c ServerConfig, s Store, v Vault) error {
+func RunServer( ctx context.Context, c ServerConfig, s Store, v Vault) error {
 	server, err := NewServer(ctx, c, s, v)
 	if err != nil {
 		return err

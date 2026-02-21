@@ -103,15 +103,14 @@ func RateLimit(rl *RateLimiter) Middleware {
 	}
 }
 
+// PublicMiddleware defines basic middleware stack WITHOUT AUTHENTICATION AND AUTHORIZATION
 func PublicMiddleware(handler http.HandlerFunc) http.HandlerFunc {
 	return Chain(
 		handler,
 		ErrorHandling,
 		Logging,
-		RateLimit(NewRateLimiter(100, time.Minute)),
+		RateLimit(NewRateLimiter(60, time.Minute)),
 		MaxBytes,
-		// Authentication(v),
-		// Authorization,
 	)
 }
 
@@ -120,7 +119,7 @@ func ProtectedMiddleware(handler http.HandlerFunc) http.HandlerFunc {
 		handler,
 		ErrorHandling,
 		Logging,
-		RateLimit(NewRateLimiter(100, time.Minute)),
+		RateLimit(NewRateLimiter(120, time.Minute)),
 		MaxBytes,
 		// Authentication(v),
 		// Authorization,
@@ -192,18 +191,6 @@ func Authentication(v Vault) Middleware {
 		}
 	}
 }
-
-// func Authorization(next http.HandlerFunc) http.HandlerFunc {
-// 	return func(w http.ResponseWriter, r *http.Request) {
-// 		claims, ok := GetClaims(r.Context())
-// 		if !ok {
-// 			WriteUnauthorizedResponse(w, AuthInvalidRequest, "missing claims in context")
-// 			return
-// 		}
-//
-// 		next.ServeHTTP(w, r)
-// 	}
-// }
 
 func Logging(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {

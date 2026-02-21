@@ -10,10 +10,14 @@ import (
 func AssembleTree(localStore Store, localVault Vault) http.Handler {
 	rootMux := http.NewServeMux()
 
+	// public middleware
+	// WARNING: PublicMiddleware defines basic middleware stack WITHOUT AUTHENTICATION AND AUTHORIZATION
 	getPublicKeys := PublicMiddleware(GetPublicKeys(localVault))
 	createAccessToken := PublicMiddleware(CreateAccessToken(localStore, localVault))
 	login := PublicMiddleware(Login(localVault))
 	callback := PublicMiddleware(RedirectProvider(localStore, localVault))
+
+	// protected middleware
 	getCandidates := ProtectedMiddleware(GetCandidates(localStore))
 	getCandidate := ProtectedMiddleware(GetCandidate(localStore))
 	createCandidate := ProtectedMiddleware(CreateCandidate(localStore, localVault))

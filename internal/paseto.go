@@ -76,7 +76,7 @@ type TokenPair struct {
 	UserID       string `json:"user_id"`
 }
 
-func (v VaultImpl) ParseAccessToken(tokenString string) (*AccessTokenClaims, error) {
+func (v PasetoVault) ParseAccessToken(tokenString string) (*AccessTokenClaims, error) {
 	parsedToken, err := v.AccessTokenParser.ParseV4Public(v.V4AsymetricPublicKey, tokenString, nil)
 	if err != nil {
 		return nil, ErrInvalidAccessToken
@@ -107,7 +107,7 @@ func (v VaultImpl) ParseAccessToken(tokenString string) (*AccessTokenClaims, err
 	}, nil
 }
 
-func (v VaultImpl) ParseRefreshToken(tokenString string) (*RefreshTokenClaims, error) {
+func (v PasetoVault) ParseRefreshToken(tokenString string) (*RefreshTokenClaims, error) {
 	parsedToken, err := v.RefreshTokenParser.ParseV4Local(v.V4SymmetricKey, tokenString, nil)
 	if err != nil {
 		return nil, ErrInvalidRefreshToken
@@ -146,11 +146,11 @@ func (v VaultImpl) ParseRefreshToken(tokenString string) (*RefreshTokenClaims, e
 	}, nil
 }
 
-func (v VaultImpl) GetPublicKey() []byte {
+func (v PasetoVault) GetPublicKey() []byte {
 	return v.V4AsymetricPublicKey.ExportBytes()
 }
 
-func (v VaultImpl) CreateAccessToken(userID string, provider string, scope string) (*AccessToken, error) {
+func (v PasetoVault) CreateAccessToken(userID string, provider string, scope string) (*AccessToken, error) {
 	now := time.Now().UTC()
 
 	var expiration time.Duration
@@ -187,7 +187,7 @@ func (v VaultImpl) CreateAccessToken(userID string, provider string, scope strin
 	}, nil
 }
 
-func (v VaultImpl) CreateRefreshToken(userID string, provider string, jti string) (*RefreshToken, error) {
+func (v PasetoVault) CreateRefreshToken(userID string, provider string, jti string) (*RefreshToken, error) {
 	now := time.Now().UTC()
 
 	token := paseto.NewToken()
@@ -214,7 +214,7 @@ func (v VaultImpl) CreateRefreshToken(userID string, provider string, jti string
 	}, nil
 }
 
-func (v VaultImpl) CreateTokenPair(userID string, provider string, jti string, scope string) (*TokenPair, error) {
+func (v PasetoVault) CreateTokenPair(userID string, provider string, jti string, scope string) (*TokenPair, error) {
 	accessToken, err := v.CreateAccessToken(userID, provider, scope)
 	if err != nil {
 		return nil, ErrFailedToCreateAccessToken(err)
@@ -235,7 +235,7 @@ func (v VaultImpl) CreateTokenPair(userID string, provider string, jti string, s
 	}, nil
 }
 
-func (v VaultImpl) GetScopeForRoles(roles []string) (string, error) {
+func (v PasetoVault) GetScopeForRoles(roles []string) (string, error) {
 	scopes := make([]string, 0, len(roles))
 
 	for _, r := range roles {
