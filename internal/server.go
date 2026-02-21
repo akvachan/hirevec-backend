@@ -20,6 +20,7 @@ const (
 )
 
 type ServerConfig struct {
+	Protocol     string
 	Host         string
 	Port         uint16
 	ReadTimeout  time.Duration
@@ -43,7 +44,7 @@ func RunServer(ctx context.Context, c ServerConfig, s Store, v Vault) error {
 
 func NewServer(ctx context.Context, c ServerConfig, s Store, v Vault) (*http.Server, error) {
 	return &http.Server{
-		Addr:         c.Host,
+		Addr:         fmt.Sprintf("%s:%v", c.Host, c.Port),
 		ReadTimeout:  c.ReadTimeout,
 		WriteTimeout: c.WriteTimeout,
 		Handler:      GetRootMux(s, v),

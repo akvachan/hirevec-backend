@@ -12,12 +12,13 @@ import (
 
 func main() {
 	if err := hirevec.Loadenv(".env"); err != nil {
-		fmt.Println("could not load .env, using system environment")
+		fmt.Printf("could not load .env, using system environment: %s\n", err)
 	}
 
 	if err := hirevec.RunApp(
 		hirevec.AppConfig{
 			// Server
+			Protocol:     os.Getenv("PROTOCOL"),
 			Host:         os.Getenv("HOST"),
 			Port:         os.Getenv("PORT"),
 			ReadTimeout:  os.Getenv("REQUEST_READ_TIMEOUT"),
@@ -43,7 +44,7 @@ func main() {
 			AppleClientSecret:  os.Getenv("APPLE_CLIENT_SECRET"),
 		},
 	); err != nil {
-		fmt.Println("app crashed")
+		fmt.Printf("app crashed: %s\n", err)
 		os.Exit(1)
 	}
 }

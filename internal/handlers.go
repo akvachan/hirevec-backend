@@ -150,6 +150,10 @@ func DecodeRequestBody[T any](r *http.Request) (data *T, err error) {
 	return data, err
 }
 
+func Health(w http.ResponseWriter, r *http.Request) {
+	WriteSuccessResponse(w, http.StatusOK, nil)
+}
+
 func GetPosition(s Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id, err := ValidateSerialID(r.PathValue("id"))

@@ -44,11 +44,11 @@ type PostgresStore struct {
 
 func NewPostgresStore(c StoreConfig) (*PostgresStore, error) {
 	dbConnString := fmt.Sprintf(
-		"postgresql://%s:%s@%s:%d/%s",
-		c.PostgresUser,
-		c.PostgresPassword,
+		"host=%s port=%d user=%s password=%s dbname=%s",
 		c.PostgresHost,
 		c.PostgresPort,
+		c.PostgresUser,
+		c.PostgresPassword,
 		c.PostgresDB,
 	)
 	database, err := sql.Open("pgx", dbConnString)
@@ -122,18 +122,18 @@ func (s PostgresStore) GetUserByProvider(provider Provider, providerUserID strin
 
 	err = s.Postgres.QueryRow(
 		`
-        SELECT
-            u.id,
-            EXISTS (
-                SELECT 1 FROM general.candidates c WHERE c.user_id = u.id
-            ) AS is_candidate,
-            EXISTS (
-                SELECT 1 FROM general.recruiters r WHERE r.user_id = u.id
-            ) AS is_recruiter
-        FROM general.users u
-        WHERE u.provider = $1
-          AND u.provider_user_id = $2
-        `,
+		SELECT
+				u.id,
+				EXISTS (
+						SELECT 1 FROM general.candidates c WHERE c.user_id = u.id
+				) AS is_candidate,
+				EXISTS (
+						SELECT 1 FROM general.recruiters r WHERE r.user_id = u.id
+				) AS is_recruiter
+		FROM general.users u
+		WHERE u.provider = $1
+			AND u.provider_user_id = $2
+		`,
 		provider,
 		providerUserID,
 	).Scan(&userID, &isCandidate, &isRecruiter)

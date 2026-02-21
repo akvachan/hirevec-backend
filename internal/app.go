@@ -12,6 +12,7 @@ import (
 )
 
 type AppConfig struct {
+	Protocol           string
 	Host               string
 	Port               string
 	ReadTimeout        string
@@ -74,6 +75,7 @@ func RunApp(c AppConfig) error {
 	return RunServer(
 		ctx,
 		ServerConfig{
+			Protocol:     c.Protocol,
 			Host:         c.Host,
 			Port:         ParseUint16WithDefault(c.Port, 8080),
 			ReadTimeout:  ParseTimeWithDefault(c.ReadTimeout, DefaultReadTimeout),

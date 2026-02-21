@@ -22,7 +22,7 @@ go run cmd/setup/main.go
 ```
 go run cmd/server/main.go
 ```
-4. You should be able to open API docs site: `http://localhost:8080/api/v1/docs`.
+4. Open [http://localhost:8080/api/v1/health](http://localhost:8080/api/v1/health).
 
 ### Via Docker
 
@@ -35,7 +35,7 @@ go run cmd/server/main.go
 ```bash
 docker compose up
 ```
-3. You should be able to open API docs site: `http:localhost:8080/api/v1/docs`.
+3. Open [http://localhost:8080/api/v1/health](http://localhost:8080/api/v1/health).
 
 ## Cleanup
 

@@ -107,8 +107,8 @@ func RateLimit(rl *RateLimiter) Middleware {
 func PublicEndpoint(handler http.HandlerFunc) http.HandlerFunc {
 	return Chain(
 		handler,
-		ErrorHandling,
 		Logging,
+		ErrorHandling,
 		RateLimit(NewRateLimiter(60, time.Minute)),
 		MaxBytes,
 	)
@@ -117,12 +117,10 @@ func PublicEndpoint(handler http.HandlerFunc) http.HandlerFunc {
 func ProtectedEndpoint(handler http.HandlerFunc) http.HandlerFunc {
 	return Chain(
 		handler,
-		ErrorHandling,
 		Logging,
+		ErrorHandling,
 		RateLimit(NewRateLimiter(120, time.Minute)),
 		MaxBytes,
-		// Authentication(v),
-		// Authorization,
 	)
 }
 
@@ -138,11 +136,11 @@ func Chain(handler http.HandlerFunc, middlewares ...Middleware) http.HandlerFunc
 
 type ResponseWriter struct {
 	http.ResponseWriter
-	Status int
+	status int
 }
 
 func (rw *ResponseWriter) WriteHeader(code int) {
-	rw.Status = code
+	rw.status = code
 	rw.ResponseWriter.WriteHeader(code)
 }
 
@@ -195,13 +193,13 @@ func Authentication(v Vault) Middleware {
 func Logging(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
-		rec := &ResponseWriter{ResponseWriter: w, Status: http.StatusOK}
+		rec := &ResponseWriter{ResponseWriter: w, status: http.StatusOK}
 		next.ServeHTTP(rec, r)
 		slog.Info(
 			"request",
 			"method", r.Method,
 			"path", r.URL.Path,
-			"status", rec.Status,
+			"status", rec.status,
 			"duration", time.Since(start),
 		)
 	}
