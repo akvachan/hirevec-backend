@@ -4,7 +4,7 @@
 package main
 
 import (
-	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"runtime"
@@ -13,18 +13,27 @@ import (
 	hirevec "github.com/akvachan/hirevec-backend/internal"
 )
 
+const (
+	initSQLPath   = "db/init/init.sql"
+	sentinelTable = "general.users"
+)
+
 var requiredVars = []string{
 	"POSTGRES_USER",
 	"POSTGRES_PASSWORD",
+	"POSTGRES_DB",
 }
+
+var log = slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))
 
 func main() {
 	if err := hirevec.Loadenv(".env"); err != nil {
-		fmt.Println("could not load .env, using system environment")
+		log.Warn("could not load .env, using system environment", "err", err)
 	}
 	checkPostgres()
 	checkEnvVars()
-	build()
+	createUserAndDB()
+	initDB()
 }
 
 func checkPostgres() {
@@ -38,29 +47,20 @@ func checkPostgres() {
 		default:
 			hint = "https://www.postgresql.org/download/"
 		}
-		die("psql not found, install PostgreSQL: " + hint)
+		die("psql not found", "hint", hint)
 	}
 
 	out, _ := exec.Command("psql", "--version").Output()
-	fmt.Println("psql found:", strings.TrimSpace(string(out)))
+	log.Info("psql found", "version", strings.TrimSpace(string(out)))
+
+	host := envOr("POSTGRES_HOST", "localhost")
+	port := envOr("POSTGRES_PORT", "5432")
 
 	if path, err := exec.LookPath("pg_isready"); err == nil {
-		host := envOr("POSTGRES_HOST", "localhost")
-		port := envOr("POSTGRES_PORT", "5432")
-
-		args := []string{"-h", host, "-p", port}
-		if u := os.Getenv("POSTGRES_USER"); u != "" {
-			args = append(args, "-U", u)
+		if err := exec.Command(path, "-h", host, "-p", port).Run(); err != nil {
+			die("postgres not reachable, start it first", "host", host, "port", port)
 		}
-		if d := os.Getenv("POSTGRES_DB"); d != "" {
-			args = append(args, "-d", d)
-		}
-
-		if err := exec.Command(path, args...).Run(); err != nil {
-			fmt.Printf("postgres not reachable at %s:%s, start it before the server needs it\n", host, port)
-		} else {
-			fmt.Printf("postgres is reachable at %s:%s\n", host, port)
-		}
+		log.Info("postgres is reachable", "host", host, "port", port)
 	}
 }
 
@@ -72,25 +72,126 @@ func checkEnvVars() {
 		}
 	}
 	if len(missing) > 0 {
-		fmt.Fprintln(os.Stderr, "missing required environment variables:")
-		for _, v := range missing {
-			fmt.Fprintf(os.Stderr, "  %s\n", v)
-		}
+		log.Error("missing required environment variables", "vars", missing)
 		os.Exit(1)
 	}
-	fmt.Println("all required environment variables are set")
+	log.Info("all required environment variables are set")
 }
 
-func build() {
-	fmt.Println("building...")
-	cmd := exec.Command("go", "build", "-ldflags=-w -s", "-o", "./bin/server", "./cmd/server/main.go")
-	cmd.Env = append(os.Environ(), "CGO_ENABLED=0")
+func createUserAndDB() {
+	user := os.Getenv("POSTGRES_USER")
+	password := os.Getenv("POSTGRES_PASSWORD")
+	dbName := os.Getenv("POSTGRES_DB")
+
+	superuser := detectSuperuser()
+	log.Info("provisioning user via superuser", "user", user, "db", dbName)
+
+	runSuper(superuser, "create role", `DO $$ BEGIN
+  IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '`+user+`') THEN
+    CREATE ROLE `+user+` WITH LOGIN PASSWORD '`+password+`';
+  END IF;
+END $$;`)
+
+	out, err := psqlSuper(superuser, "-tAc",
+		"SELECT 1 FROM pg_database WHERE datname = '"+dbName+"';",
+	).Output()
+	if err != nil {
+		die("could not check database existence", "err", err)
+	}
+	if strings.TrimSpace(string(out)) != "1" {
+		runSuper(superuser, "create database", "CREATE DATABASE "+dbName+" OWNER "+user+";")
+	} else {
+		log.Info("database already exists, skipping creation", "db", dbName)
+	}
+
+	runSuper(superuser, "grant privileges", "GRANT ALL PRIVILEGES ON DATABASE "+dbName+" TO "+user+";")
+
+	log.Info("role and database ready", "user", user, "db", dbName)
+}
+
+func initDB() {
+	out, err := psqlApp("-c", "SELECT to_regclass('"+sentinelTable+"');").Output()
+	if err != nil {
+		die("could not query database", "err", err)
+	}
+
+	if strings.Contains(string(out), sentinelTable) {
+		log.Info("database already initialized, skipping init.sql")
+		return
+	}
+
+	log.Info("initializing database", "file", initSQLPath)
+	cmd := psqlApp("-f", initSQLPath)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
-		die("build failed: " + err.Error())
+		die("database initialization failed", "err", err)
 	}
-	fmt.Println("build successful, binary at ./bin/server")
+	log.Info("database initialized")
+}
+
+func detectSuperuser() string {
+	if v := os.Getenv("POSTGRES_SUPERUSER"); v != "" {
+		return v
+	}
+
+	host := envOr("POSTGRES_HOST", "localhost")
+	port := envOr("POSTGRES_PORT", "5432")
+
+	candidates := []string{"postgres"}
+	if u, err := osUsername(); err == nil && u != "postgres" {
+		candidates = append(candidates, u)
+	}
+
+	for _, u := range candidates {
+		cmd := exec.Command("psql", "-h", host, "-p", port, "-U", u, "-d", "postgres", "-c", "SELECT 1;")
+		if err := cmd.Run(); err == nil {
+			return u
+		}
+	}
+
+	if u, err := osUsername(); err == nil {
+		return u
+	}
+	return "postgres"
+}
+
+func osUsername() (string, error) {
+	out, err := exec.Command("id", "-un").Output()
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+func runSuper(superuser, op, stmt string) {
+	cmd := psqlSuper(superuser, "-c", stmt)
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		die("provisioning failed", "op", op, "err", err)
+	}
+}
+
+func psqlSuper(superuser string, args ...string) *exec.Cmd {
+	base := []string{
+		"-h", envOr("POSTGRES_HOST", "localhost"),
+		"-p", envOr("POSTGRES_PORT", "5432"),
+		"-U", superuser,
+		"-d", "postgres",
+	}
+	return exec.Command("psql", append(base, args...)...)
+}
+
+func psqlApp(args ...string) *exec.Cmd {
+	base := []string{
+		"-h", envOr("POSTGRES_HOST", "localhost"),
+		"-p", envOr("POSTGRES_PORT", "5432"),
+		"-U", os.Getenv("POSTGRES_USER"),
+		"-d", os.Getenv("POSTGRES_DB"),
+	}
+	cmd := exec.Command("psql", append(base, args...)...)
+	cmd.Env = append(os.Environ(), "PGPASSWORD="+os.Getenv("POSTGRES_PASSWORD"))
+	return cmd
 }
 
 func envOr(key, fallback string) string {
@@ -100,7 +201,7 @@ func envOr(key, fallback string) string {
 	return fallback
 }
 
-func die(msg string) {
-	fmt.Fprintln(os.Stderr, msg)
+func die(msg string, args ...any) {
+	log.Error(msg, args...)
 	os.Exit(1)
 }

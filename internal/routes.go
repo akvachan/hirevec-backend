@@ -7,22 +7,22 @@ import (
 	"net/http"
 )
 
-func AssembleTree(localStore Store, localVault Vault) http.Handler {
+func GetRootMux(localStore Store, localVault Vault) http.Handler {
 	rootMux := http.NewServeMux()
 
-	// public middleware
-	// WARNING: PublicMiddleware defines basic middleware stack WITHOUT AUTHENTICATION AND AUTHORIZATION
-	getPublicKeys := PublicMiddleware(GetPublicKeys(localVault))
-	createAccessToken := PublicMiddleware(CreateAccessToken(localStore, localVault))
-	login := PublicMiddleware(Login(localVault))
-	callback := PublicMiddleware(RedirectProvider(localStore, localVault))
+	// public endpoints
+	// WARNING: PublicEndpoint wraps handlers with a basic middleware stack WITHOUT AUTHENTICATION AND AUTHORIZATION
+	getPublicKeys := PublicEndpoint(GetPublicKeys(localVault))
+	createAccessToken := PublicEndpoint(CreateAccessToken(localStore, localVault))
+	login := PublicEndpoint(Login(localVault))
+	callback := PublicEndpoint(RedirectProvider(localStore, localVault))
 
-	// protected middleware
-	getCandidates := ProtectedMiddleware(GetCandidates(localStore))
-	getCandidate := ProtectedMiddleware(GetCandidate(localStore))
-	createCandidate := ProtectedMiddleware(CreateCandidate(localStore, localVault))
-	getPositions := ProtectedMiddleware(GetPositions(localStore))
-	getPosition := ProtectedMiddleware(GetPosition(localStore))
+	// protected endpoint
+	getCandidates := ProtectedEndpoint(GetCandidates(localStore))
+	getCandidate := ProtectedEndpoint(GetCandidate(localStore))
+	createCandidate := ProtectedEndpoint(CreateCandidate(localStore, localVault))
+	getPositions := ProtectedEndpoint(GetPositions(localStore))
+	getPosition := ProtectedEndpoint(GetPosition(localStore))
 
 	rootMux.Handle("GET 	/api/v1/auth/keys", getPublicKeys)
 	rootMux.Handle("GET 	/api/v1/auth/token", createAccessToken)

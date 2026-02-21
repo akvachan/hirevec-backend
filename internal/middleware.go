@@ -103,8 +103,8 @@ func RateLimit(rl *RateLimiter) Middleware {
 	}
 }
 
-// PublicMiddleware defines basic middleware stack WITHOUT AUTHENTICATION AND AUTHORIZATION
-func PublicMiddleware(handler http.HandlerFunc) http.HandlerFunc {
+// PublicEndpoint wraps handler with basic middleware stack WITHOUT AUTHENTICATION AND AUTHORIZATION
+func PublicEndpoint(handler http.HandlerFunc) http.HandlerFunc {
 	return Chain(
 		handler,
 		ErrorHandling,
@@ -114,7 +114,7 @@ func PublicMiddleware(handler http.HandlerFunc) http.HandlerFunc {
 	)
 }
 
-func ProtectedMiddleware(handler http.HandlerFunc) http.HandlerFunc {
+func ProtectedEndpoint(handler http.HandlerFunc) http.HandlerFunc {
 	return Chain(
 		handler,
 		ErrorHandling,

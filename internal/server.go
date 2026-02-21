@@ -46,7 +46,7 @@ func NewServer(ctx context.Context, c ServerConfig, s Store, v Vault) (*http.Ser
 		Addr:         c.Host,
 		ReadTimeout:  c.ReadTimeout,
 		WriteTimeout: c.WriteTimeout,
-		Handler:      AssembleTree(s, v),
+		Handler:      GetRootMux(s, v),
 		ErrorLog:     slog.NewLogLogger(slog.Default().Handler(), slog.LevelError),
 		BaseContext:  func(_ net.Listener) context.Context { return ctx },
 	}, nil

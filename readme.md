@@ -19,6 +19,9 @@ go run cmd/setup/main.go
 go run cmd/server/main.go
 ```
 
+> [!NOTE]
+> The setup script is idempotent.
+
 ### Via Docker
 
 #### Requirements
