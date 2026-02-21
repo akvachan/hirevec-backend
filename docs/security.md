@@ -18,7 +18,7 @@ Anyone can access authentication endpoint (currently `/api/v1/auth/login/{provid
 After successful authentication:
 
 - If the user already has a profile, the client is issued a pair of access and refresh tokens with the appropriate scopes based on their profile type (candidate or recruiter).
-- If the user does not have a profile, the client is issued a short-lived onboarding access token (24 hours) with the `candidates:write`, `recruiters:write` scope, which allows them to create one candidte and one recruiter profile.
+- If the user does not have a profile, the client is issued a short-lived onboarding access token (24 hours) with the `candidates:write`, `recruiters:write` scope, which allows them to create one candidate and one recruiter profile.
 - If the onboarding access token expires before the user creates a profile, they can simply authenticate again to obtain a new registration access token.
 
 Refresh tokens are not stored in the DB, instead their JTI is stored.
