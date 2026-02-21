@@ -26,7 +26,7 @@ go run cmd/server/main.go
 
 #### Steps
 1. Setup required environment variables in `.env` as shown in [.example.env](.example.env).
-2.  
+2. Run:
 ```bash
 docker compose up
 ```
