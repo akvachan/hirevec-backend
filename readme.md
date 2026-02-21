@@ -1,14 +1,34 @@
 # hirevec-backend
 
-## Run Server
-- Setup environment variables in `.env` as shown in [.example.env](.example.env).
-- Setup development PGSQL database, refer to [this](#setup-pgsql) section:
-    1. [Install Postgres](https://www.postgresql.org/download/).
-    2. []
-- Run server with: 
+## Setup
+
+We support either bare metal setup (downloading postgres and other dependencies is on you) or Docker (dependencies are handled automatically).
+
+### Bare Metal
+
+#### Requirements
+- go >= 1.25.5 
+- postgres >= 18.1
+
+#### Steps
+1. Setup required environment variables in `.env` as shown in [.example.env](.example.env).
+2. Run Go setup script:
+```bash
+go run cmd/setup/main.go
 ```
-go run cmd/server
+3. Run Go server:
+```
+go run cmd/server/main.go
 ```
 
 ### Via Docker
 
+#### Requirements
+- docker >= 29.0.1
+
+#### Steps
+1. Setup required environment variables in `.env` as shown in [.example.env](.example.env).
+2.  
+```bash
+docker compose up
+```

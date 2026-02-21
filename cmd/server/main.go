@@ -4,7 +4,7 @@
 package main
 
 import (
-	"log/slog"
+	"fmt"
 	"os"
 
 	hirevec "github.com/akvachan/hirevec-backend/internal"
@@ -12,10 +12,7 @@ import (
 
 func main() {
 	if err := hirevec.Loadenv(".env"); err != nil {
-		slog.Warn(
-			"could not load .env, using system environment",
-			"err", err,
-		)
+		fmt.Println("could not load .env, using system environment")
 	}
 
 	if err := hirevec.RunApp(
@@ -46,10 +43,7 @@ func main() {
 			AppleClientSecret:  os.Getenv("APPLE_CLIENT_SECRET"),
 		},
 	); err != nil {
-		slog.Error(
-			"app crashed",
-			"err", err,
-		)
+		fmt.Println("app crashed")
 		os.Exit(1)
 	}
 }
