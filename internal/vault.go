@@ -262,7 +262,7 @@ func (v PasetoVault) VerifyAndParseGoogleIDToken(ctx context.Context, rawIDToken
 	}
 
 	return &User{
-		Provider:       GoogleProvider,
+		Provider:       ProviderGoogle,
 		ProviderUserID: claims.Sub,
 		Email:          claims.Email,
 		FirstName:      firstName,
@@ -303,7 +303,7 @@ func (v PasetoVault) VerifyAndParseAppleIDToken(ctx context.Context, rawIDToken 
 	}
 
 	return &User{
-		Provider:       AppleProvider,
+		Provider:       ProviderApple,
 		ProviderUserID: claims.Sub,
 		Email:          claims.Email,
 		FirstName:      firstName,

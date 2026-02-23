@@ -9,7 +9,7 @@ import (
 	"os/exec"
 	"strings"
 
-	hirevec "github.com/akvachan/hirevec-backend/internal"
+	"github.com/akvachan/hirevec-backend/cmd/common"
 )
 
 var requiredVars = []string{
@@ -20,7 +20,7 @@ var requiredVars = []string{
 var log = slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))
 
 func main() {
-	if err := hirevec.Loadenv(".env"); err != nil {
+	if err := common.Loadenv(".env"); err != nil {
 		log.Warn("could not load .env, using system environment", "err", err)
 	}
 	checkEnvVars()

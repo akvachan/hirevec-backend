@@ -11,8 +11,6 @@ import (
 	"fmt"
 	"strings"
 	"time"
-
-	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
 type Store interface {
@@ -22,9 +20,9 @@ type Store interface {
 	CreateRecruiterReaction(RecruiterReaction) error
 	CreateRefreshToken(userID string, expiresAt time.Time) (jti string, err error)
 	CreateUser(User) (userID string, err error)
-	GetCandidate(id uint32) (json.RawMessage, error)
+	GetCandidate(id string) (json.RawMessage, error)
 	GetCandidates(Paginator) (json.RawMessage, error)
-	GetPosition(id uint32) (json.RawMessage, error)
+	GetPosition(id string) (json.RawMessage, error)
 	GetPositions(Paginator) (json.RawMessage, error)
 	GetUserByProvider(provider Provider, providerUserID string) (userID string, roles []string, err error)
 	ValidateActiveSession(jti string) (isSessionRevoked bool, err error)
@@ -59,11 +57,11 @@ func NewPostgresStore(c StoreConfig) (*PostgresStore, error) {
 }
 
 // GetPosition retrieves a single position from the database by its unique identifier.
-func (s PostgresStore) GetPosition(id uint32) (j json.RawMessage, err error) {
+func (s PostgresStore) GetPosition(id string) (j json.RawMessage, err error) {
 	return j, s.Postgres.QueryRow(
 		`
 		SELECT row_to_json(t) 
-		FROM general.positions t
+		FROM v1.positions t
 		WHERE t.id = $1
 		`,
 		id,
@@ -77,7 +75,7 @@ func (s PostgresStore) GetPositions(p Paginator) (j json.RawMessage, err error) 
 		SELECT COALESCE(json_agg(t), '[]'::json)
 		FROM (
 			SELECT *
-			FROM general.positions
+			FROM v1.positions
 			ORDER BY id
 			LIMIT $1 OFFSET $2
 		) t
@@ -88,11 +86,11 @@ func (s PostgresStore) GetPositions(p Paginator) (j json.RawMessage, err error) 
 }
 
 // GetCandidate retrieves a single candidate's details by their ID.
-func (s PostgresStore) GetCandidate(id uint32) (j json.RawMessage, err error) {
+func (s PostgresStore) GetCandidate(id string) (j json.RawMessage, err error) {
 	return j, s.Postgres.QueryRow(
 		`
 		SELECT row_to_json(t) 
-		FROM general.candidates t
+		FROM v1.candidates t
 		WHERE t.id = $1
 		`,
 		id,
@@ -106,7 +104,7 @@ func (s PostgresStore) GetCandidates(p Paginator) (j json.RawMessage, err error)
 		SELECT COALESCE(json_agg(t), '[]'::json)
 		FROM (
 			SELECT *
-			FROM general.candidates
+			FROM v1.candidates
 			ORDER BY id 
 			LIMIT $1 OFFSET $2
 		) t
@@ -125,12 +123,12 @@ func (s PostgresStore) GetUserByProvider(provider Provider, providerUserID strin
 		SELECT
 				u.id,
 				EXISTS (
-						SELECT 1 FROM general.candidates c WHERE c.user_id = u.id
+						SELECT 1 FROM v1.candidates c WHERE c.user_id = u.id
 				) AS is_candidate,
 				EXISTS (
-						SELECT 1 FROM general.recruiters r WHERE r.user_id = u.id
+						SELECT 1 FROM v1.recruiters r WHERE r.user_id = u.id
 				) AS is_recruiter
-		FROM general.users u
+		FROM v1.users u
 		WHERE u.provider = $1
 			AND u.provider_user_id = $2
 		`,
@@ -160,8 +158,8 @@ func (s PostgresStore) GetUserByProvider(provider Provider, providerUserID strin
 }
 
 // CreateUser generates a unique username and inserts a new user record.
-func (s PostgresStore) CreateUser(user User) (userID string, err error) {
-	if user.FirstName == "" || user.LastName == "" || user.FullName == "" {
+func (s PostgresStore) CreateUser(u User) (userID string, err error) {
+	if u.FirstName == "" || u.LastName == "" || u.FullName == "" {
 		return "", ErrNamesRequired
 	}
 
@@ -172,14 +170,14 @@ func (s PostgresStore) CreateUser(user User) (userID string, err error) {
 	}
 
 	userName := fmt.Sprintf("%s_%s_%s",
-		strings.ToLower(user.FirstName),
-		strings.ToLower(user.LastName),
+		strings.ToLower(u.FirstName),
+		strings.ToLower(u.LastName),
 		hex.EncodeToString(suffix),
 	)
 
 	err = s.Postgres.QueryRow(
 		`
-		INSERT INTO general.users (
+		INSERT INTO v1.users (
 			provider,
 			provider_user_id, 
 			email,
@@ -189,10 +187,10 @@ func (s PostgresStore) CreateUser(user User) (userID string, err error) {
 		VALUES ($1, $2, $3, $4, $5)
 		RETURNING id
 		`,
-		user.Provider,
-		user.ProviderUserID,
-		user.Email,
-		user.FullName,
+		u.Provider,
+		u.ProviderUserID,
+		u.Email,
+		u.FullName,
 		userName,
 	).Scan(&userID)
 	return userID, err
@@ -202,7 +200,7 @@ func (s PostgresStore) CreateUser(user User) (userID string, err error) {
 func (s PostgresStore) CreateCandidateReaction(r CandidateReaction) error {
 	_, err := s.Postgres.Exec(
 		`
-		INSERT INTO general.candidates_reactions (
+		INSERT INTO v1.candidates_reactions (
 			candidate_id,
 			position_id,
 			reaction_type
@@ -217,17 +215,17 @@ func (s PostgresStore) CreateCandidateReaction(r CandidateReaction) error {
 }
 
 // CreateCandidate creates a candidate
-func (s PostgresStore) CreateCandidate(r Candidate) error {
+func (s PostgresStore) CreateCandidate(c Candidate) error {
 	_, err := s.Postgres.Exec(
 		`
-		INSERT INTO general.candidate (
+		INSERT INTO v1.candidate (
 			user_id,
 			about
 		)
 		VALUES ($1, $2)
 		`,
-		r.UserID,
-		r.About,
+		c.UserID,
+		c.About,
 	)
 	return err
 }
@@ -236,7 +234,7 @@ func (s PostgresStore) CreateCandidate(r Candidate) error {
 func (s PostgresStore) CreateRecruiterReaction(r RecruiterReaction) error {
 	_, err := s.Postgres.Exec(
 		`
-		INSERT INTO general.recruiters_reactions (
+		INSERT INTO v1.recruiters_reactions (
 			recruiter_id,
 			position_id,
 			candidate_id,
@@ -256,7 +254,7 @@ func (s PostgresStore) CreateRecruiterReaction(r RecruiterReaction) error {
 func (s PostgresStore) CreateMatch(m Match) error {
 	_, err := s.Postgres.Exec(
 		`
-		INSERT INTO general.matches (
+		INSERT INTO v1.matches (
 			candidate_id,
 			position_id
 		)
@@ -273,7 +271,7 @@ func (s PostgresStore) ValidateActiveSession(jti string) (isSessionRevoked bool,
 	return isSessionRevoked, s.Postgres.QueryRow(
 		`
 		SELECT revoked 
-	 	FROM general.refresh_tokens 
+	 	FROM v1.refresh_tokens 
 	 	WHERE jti = $1 
 		AND expires_at > NOW()
 		`,
@@ -285,7 +283,7 @@ func (s PostgresStore) ValidateActiveSession(jti string) (isSessionRevoked bool,
 func (s PostgresStore) CreateRefreshToken(userID string, expiresAt time.Time) (jti string, err error) {
 	err = s.Postgres.QueryRow(
 		`
-		INSERT INTO general.refresh_tokens (
+		INSERT INTO v1.refresh_tokens (
 			user_id,
 			expires_at
 		)

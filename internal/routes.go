@@ -4,37 +4,52 @@
 package hirevec
 
 import (
+	"fmt"
 	"net/http"
 )
 
-func GetRootMux(localStore Store, localVault Vault) http.Handler {
-	rootMux := http.NewServeMux()
+type Route struct {
+	Method string
+	Href   string
+}
 
-	// !!! WARNING: PublicEndpoint wraps handlers with a basic middleware stack WITHOUT AUTHENTICATION AND AUTHORIZATION !!!
-	health := PublicEndpoint(Health)
-	getPublicKeys := PublicEndpoint(GetPublicKeys(localVault))
-	createAccessToken := PublicEndpoint(CreateAccessToken(localStore, localVault))
-	login := PublicEndpoint(Login(localVault))
-	callback := PublicEndpoint(RedirectProvider(localStore, localVault))
+func (r Route) String() string {
+	return fmt.Sprintf("%s %s", r.Method, r.Href)
+}
 
-	getCandidates := ProtectedEndpoint(GetCandidates(localStore))
-	getCandidate := ProtectedEndpoint(GetCandidate(localStore))
-	createCandidate := ProtectedEndpoint(CreateCandidate(localStore, localVault))
-	getPositions := ProtectedEndpoint(GetPositions(localStore))
-	getPosition := ProtectedEndpoint(GetPosition(localStore))
+var (
+	RouteGetHealth         = Route{http.MethodGet, "/api/v1/health"}
+	RouteGetPublicKeys     = Route{http.MethodGet, "/api/v1/auth/keys"}
+	RouteCreateAccessToken = Route{http.MethodPost, "/api/v1/auth/token"}
+	RouteGetLogin          = Route{http.MethodGet, "/api/v1/auth/login/{provider}"}
+	RouteCreateLogin       = Route{http.MethodPost, "/api/v1/auth/login/{provider}"}
+	RouteGetCallback       = Route{http.MethodGet, "/api/v1/auth/callback/{provider}"}
+	RouteCreateCallback    = Route{http.MethodPost, "/api/v1/auth/callback/{provider}"}
 
-	rootMux.HandleFunc("GET /api/v1/health", health)
-	rootMux.HandleFunc("GET /api/v1/auth/keys", getPublicKeys)
-	rootMux.HandleFunc("GET /api/v1/auth/token", createAccessToken)
-	rootMux.HandleFunc("GET /api/v1/auth/login/{provider}", login)
-	rootMux.HandleFunc("POST /api/v1/auth/login/{provider}", login)
-	rootMux.HandleFunc("GET /api/v1/auth/callback/{provider}", callback)
-	rootMux.HandleFunc("POST /api/v1/auth/callback/{provider}", callback)
-	rootMux.HandleFunc("GET /api/v1/candidates", getCandidates)
-	rootMux.HandleFunc("GET /api/v1/candidates/{id}", getCandidate)
-	rootMux.HandleFunc("POST /api/v1/candidates", createCandidate)
-	rootMux.HandleFunc("GET /api/v1/positions", getPositions)
-	rootMux.HandleFunc("GET /api/v1/positions/{id}", getPosition)
+	// DEPRECATED:
+	RouteGetPositions     = Route{http.MethodGet, "/api/v1/positions/{id}"}
+	RouteGetCandidates    = Route{http.MethodGet, "/api/v1/candidates/{id}"}
+	RouteCreateCandidates = Route{http.MethodPost, "/api/v1/candidates"}
+)
 
-	return rootMux
+func GetRootMux(s Store, v Vault) http.Handler {
+	mux := http.NewServeMux()
+
+	var (
+		health            = Public(Health)
+		publicKeys        = Public(GetPublicKeys(v))
+		createAccessToken = Public(CreateAccessToken(s, v))
+		login             = Public(Login(v))
+		callback          = Public(RedirectProvider(s, v))
+	)
+
+	mux.Handle(RouteGetHealth.String(), health)
+	mux.Handle(RouteGetPublicKeys.String(), publicKeys)
+	mux.Handle(RouteCreateAccessToken.String(), createAccessToken)
+	mux.Handle(RouteGetLogin.String(), login)
+	mux.Handle(RouteCreateLogin.String(), login)
+	mux.Handle(RouteGetCallback.String(), callback)
+	mux.Handle(RouteCreateCallback.String(), callback)
+
+	return mux
 }

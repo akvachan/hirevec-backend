@@ -10,11 +10,11 @@ import (
 	"runtime"
 	"strings"
 
-	hirevec "github.com/akvachan/hirevec-backend/internal"
+	"github.com/akvachan/hirevec-backend/cmd/common"
 )
 
 const (
-	initSQLPath   = "db/init/init.sql"
+	initSQLPath   = "init.sql"
 	sentinelTable = "general.users"
 )
 
@@ -27,7 +27,7 @@ var requiredVars = []string{
 var log = slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))
 
 func main() {
-	if err := hirevec.Loadenv(".env"); err != nil {
+	if err := common.Loadenv(".env"); err != nil {
 		log.Warn("could not load .env, using system environment", "err", err)
 	}
 	checkPostgres()
@@ -53,8 +53,8 @@ func checkPostgres() {
 	out, _ := exec.Command("psql", "--version").Output()
 	log.Info("psql found", "version", strings.TrimSpace(string(out)))
 
-	host := envOr("POSTGRES_HOST", "localhost")
-	port := envOr("POSTGRES_PORT", "5432")
+	host := common.Getenv("POSTGRES_HOST", "localhost")
+	port := common.Getenv("POSTGRES_PORT", "5432")
 
 	if path, err := exec.LookPath("pg_isready"); err == nil {
 		if err := exec.Command(path, "-h", host, "-p", port).Run(); err != nil {
@@ -122,7 +122,6 @@ func initDB() {
 
 	log.Info("initializing database", "file", initSQLPath)
 	cmd := psqlApp("-f", initSQLPath)
-	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
 		die("database initialization failed", "err", err)
@@ -135,8 +134,8 @@ func detectSuperuser() string {
 		return v
 	}
 
-	host := envOr("POSTGRES_HOST", "localhost")
-	port := envOr("POSTGRES_PORT", "5432")
+	host := common.Getenv("POSTGRES_HOST", "localhost")
+	port := common.Getenv("POSTGRES_PORT", "5432")
 
 	candidates := []string{"postgres"}
 	if u, err := osUsername(); err == nil && u != "postgres" {
@@ -174,8 +173,8 @@ func runSuper(superuser, op, stmt string) {
 
 func psqlSuper(superuser string, args ...string) *exec.Cmd {
 	base := []string{
-		"-h", envOr("POSTGRES_HOST", "localhost"),
-		"-p", envOr("POSTGRES_PORT", "5432"),
+		"-h", common.Getenv("POSTGRES_HOST", "localhost"),
+		"-p", common.Getenv("POSTGRES_PORT", "5432"),
 		"-U", superuser,
 		"-d", "postgres",
 	}
@@ -184,21 +183,14 @@ func psqlSuper(superuser string, args ...string) *exec.Cmd {
 
 func psqlApp(args ...string) *exec.Cmd {
 	base := []string{
-		"-h", envOr("POSTGRES_HOST", "localhost"),
-		"-p", envOr("POSTGRES_PORT", "5432"),
+		"-h", common.Getenv("POSTGRES_HOST", "localhost"),
+		"-p", common.Getenv("POSTGRES_PORT", "5432"),
 		"-U", os.Getenv("POSTGRES_USER"),
 		"-d", os.Getenv("POSTGRES_DB"),
 	}
 	cmd := exec.Command("psql", append(base, args...)...)
 	cmd.Env = append(os.Environ(), "PGPASSWORD="+os.Getenv("POSTGRES_PASSWORD"))
 	return cmd
-}
-
-func envOr(key, fallback string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
-	}
-	return fallback
 }
 
 func die(msg string, args ...any) {

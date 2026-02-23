@@ -6,15 +6,15 @@ package hirevec
 type Provider string
 
 const (
-	AppleProvider  Provider = "apple"
-	GoogleProvider Provider = "google"
+	ProviderApple  Provider = "apple"
+	ProviderGoogle Provider = "google"
 )
 
 func (p Provider) Raw() string {
-	if p == AppleProvider {
+	if p == ProviderApple {
 		return "apple"
 	}
-	if p == GoogleProvider {
+	if p == ProviderGoogle {
 		return "google"
 	}
 	return ""
@@ -49,36 +49,36 @@ type Paginator struct {
 
 // Match represents a successful connection between a candidate and a specific job position.
 type Match struct {
-	CandidateID uint32
-	PositionID  uint32
+	CandidateID string
+	PositionID  string
 }
 
 // ReactionType defines a restricted set of strings representing user sentiment.
 type ReactionType string
 
 const (
-	// Positive indicates interest or approval.
-	Positive ReactionType = "positive"
+	// ReactionTypePositive indicates interest or approval.
+	ReactionTypePositive ReactionType = "positive"
 
-	// Negative indicates a lack of interest or rejection.
-	Negative ReactionType = "negative"
+	// ReactionTypeNegative indicates a lack of interest or rejection.
+	ReactionTypeNegative ReactionType = "negative"
 )
 
 func (r ReactionType) IsValid() bool {
-	return r == Positive || r == Negative
+	return r == ReactionTypePositive || r == ReactionTypeNegative
 }
 
 // CandidateReaction represents the internal model for a candidate's response to a job posting.
 type CandidateReaction struct {
-	CandidateID  uint32
-	PositionID   uint32
+	CandidateID  string
+	PositionID   string
 	ReactionType ReactionType
 }
 
 // RecruiterReaction represents the internal model for a recruiter's response to a specific candidate.
 type RecruiterReaction struct {
-	RecruiterID  uint32
-	CandidateID  uint32
-	PositionID   uint32
+	RecruiterID  string
+	CandidateID  string
+	PositionID   string
 	ReactionType ReactionType
 }

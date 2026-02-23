@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Arsenii Kvachan
 // SPDX-License-Identifier: MIT
 
-package hirevec
+package common
 
 import (
 	"bufio"

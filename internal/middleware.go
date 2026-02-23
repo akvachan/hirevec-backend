@@ -94,7 +94,7 @@ func RateLimit(rl *RateLimiter) Middleware {
 			}
 
 			if !rl.allow(ip) {
-				WriteErrorResponse(w, http.StatusTooManyRequests, "rate limit exceeded")
+				Error(w, http.StatusTooManyRequests, "rate limit exceeded")
 				return
 			}
 
@@ -103,8 +103,8 @@ func RateLimit(rl *RateLimiter) Middleware {
 	}
 }
 
-// PublicEndpoint wraps handler with basic middleware stack WITHOUT AUTHENTICATION AND AUTHORIZATION
-func PublicEndpoint(handler http.HandlerFunc) http.HandlerFunc {
+// Public wraps handler with basic middleware stack WITHOUT AUTHENTICATION AND AUTHORIZATION.
+func Public(handler http.HandlerFunc) http.HandlerFunc {
 	return Chain(
 		handler,
 		Logging,
@@ -114,7 +114,7 @@ func PublicEndpoint(handler http.HandlerFunc) http.HandlerFunc {
 	)
 }
 
-func ProtectedEndpoint(handler http.HandlerFunc) http.HandlerFunc {
+func Protected(handler http.HandlerFunc) http.HandlerFunc {
 	return Chain(
 		handler,
 		Logging,
@@ -126,6 +126,7 @@ func ProtectedEndpoint(handler http.HandlerFunc) http.HandlerFunc {
 
 type Middleware func(http.HandlerFunc) http.HandlerFunc
 
+// Chain wraps handler into a sequence of middlewares, each middleware is applied in the same order it is provided.
 func Chain(handler http.HandlerFunc, middlewares ...Middleware) http.HandlerFunc {
 	wrapped := handler
 	for i := len(middlewares) - 1; i >= 0; i-- {
@@ -152,7 +153,7 @@ func ErrorHandling(next http.HandlerFunc) http.HandlerFunc {
 					"panic recovered",
 					"err", err,
 				)
-				WriteErrorResponse(w, http.StatusInternalServerError, "internal server error")
+				Error(w, http.StatusInternalServerError, "internal server error")
 			}
 		}()
 		next.ServeHTTP(w, r)
@@ -175,12 +176,12 @@ func Authentication(v Vault) Middleware {
 			authHeader := r.Header.Get("Authorization")
 			bearer, found := strings.CutPrefix(authHeader, "Bearer ")
 			if !found || bearer == "" {
-				WriteUnauthorizedResponse(w, AuthInvalidClient, "Bearer token is required")
+				Unauthorized(w, AuthInvalidClient, "Bearer token is required")
 				return
 			}
 			claims, err := v.ParseAccessToken(bearer)
 			if err != nil {
-				WriteAuthErrorResponse(w, AuthInvalidRequest, "invalid access token")
+				AuthError(w, AuthInvalidRequest, "invalid access token")
 				return
 			}
 			ctx := context.WithValue(r.Context(), ContextKeyUserID, claims.UserID)

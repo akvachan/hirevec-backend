@@ -14,7 +14,7 @@ We support bare metal setup (downloading postgres and other dependencies is on y
 #### Requirements
 
 - go >= 1.25.5 
-- postgres >= 18.1
+- postgres == 18.2
 
 #### Steps
 

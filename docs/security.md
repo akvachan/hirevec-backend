@@ -1,7 +1,8 @@
 # Security 
 
 ## Constraints
-Applications's primary client is a native application. Each client is responsible for one user. User identifiers are issued by the database as UUIDs.
+Applications's primary client is a native application. Each client is responsible for one user. User identifiers are issued by the database as [ULIDs](https://github.com/ulid/spec).
+ULIDs have several nice properties: they are more lightweight than UUIDs, they are sortable and can be generated in a distributed fashion.
 Client authentication is fully passwordless, a provider's SSO is used.
 
 ## Flow
@@ -21,8 +22,8 @@ After successful authentication:
 - If the user does not have a profile, the client is issued a short-lived onboarding access token (24 hours) with the `candidates:write`, `recruiters:write` scope, which allows them to create one candidate and one recruiter profile.
 - If the onboarding access token expires before the user creates a profile, they can simply authenticate again to obtain a new registration access token.
 
-Refresh tokens are not stored in the DB, instead their JTI is stored.
-The JTI is issued by the database as UUID.
+Refresh tokens are not stored in the DB, nor are their hashes, instead their JTIs are stored.
+The JTI is issued by the database as ULID.
 Refresh tokens can be invalidated by setting a flag in the table for a specific token.
 Access tokens have a lifespan of 15 minutes, refresh tokens have a lifespan of 30 days.
 

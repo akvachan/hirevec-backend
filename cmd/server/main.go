@@ -7,11 +7,13 @@ import (
 	"fmt"
 	"os"
 
-	hirevec "github.com/akvachan/hirevec-backend/internal"
+	"github.com/akvachan/hirevec-backend/cmd/common"
+	"github.com/akvachan/hirevec-backend/internal"
+	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
 func main() {
-	if err := hirevec.Loadenv(".env"); err != nil {
+	if err := common.Loadenv(".env"); err != nil {
 		fmt.Printf("could not load .env, using system environment: %s\n", err)
 	}
 

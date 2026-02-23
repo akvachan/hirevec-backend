@@ -18,10 +18,10 @@ var stateStore = &StateStore{
 type IssuedTokenType string
 
 const (
-	refreshToken           IssuedTokenType = "urn:ietf:params:oauth:token-type:refresh_token"
-	accessToken            IssuedTokenType = "urn:ietf:params:oauth:token-type:access_token"
-	RefreshTokenExpiration                 = 30 * 24 * time.Hour
-	AccessTokenExpiration                  = 30 * time.Minute
+	IssuedTokenTypeRefreshToken IssuedTokenType = "urn:ietf:params:oauth:token-type:refresh_token"
+	IssuedTokenTypeAccessToken  IssuedTokenType = "urn:ietf:params:oauth:token-type:access_token"
+	RefreshTokenExpiration                      = 30 * 24 * time.Hour
+	AccessTokenExpiration                       = 30 * time.Minute
 )
 
 type StateStore struct {
@@ -168,7 +168,7 @@ func (v PasetoVault) CreateAccessToken(userID string, provider string, scope str
 	token.SetNotBefore(now)
 	token.SetIssuedAt(now)
 
-	if err := token.Set("token_type", accessToken); err != nil {
+	if err := token.Set("token_type", IssuedTokenTypeAccessToken); err != nil {
 		return nil, ErrFailedToSetTokenType
 	}
 
@@ -199,7 +199,7 @@ func (v PasetoVault) CreateRefreshToken(userID string, provider string, jti stri
 	token.SetIssuedAt(now)
 	token.SetJti(jti)
 
-	if err := token.Set("token_type", refreshToken); err != nil {
+	if err := token.Set("token_type", IssuedTokenTypeRefreshToken); err != nil {
 		return nil, ErrFailedToSetTokenType
 	}
 
