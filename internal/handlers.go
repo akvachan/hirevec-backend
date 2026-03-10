@@ -190,7 +190,7 @@ func Fail(w http.ResponseWriter, status int, data any, links Links) {
 	WriteJSON(w, status, FailResponse{ResponseStatusFail, data, links})
 }
 
-func AuthAccessToken(w http.ResponseWriter, accessToken AccessToken, links Links) {
+func AuthAccessToken(w http.ResponseWriter, accessToken AccessToken) {
 	SetAuthHeaders(w)
 
 	data := struct {
@@ -198,7 +198,7 @@ func AuthAccessToken(w http.ResponseWriter, accessToken AccessToken, links Links
 		Links Links `json:"_links,omitempty"`
 	}{
 		accessToken,
-		links,
+		nil,
 	}
 	WriteJSON(w, http.StatusOK, data)
 }
@@ -216,9 +216,9 @@ func AuthTokenPair(w http.ResponseWriter, tokenPair TokenPair, links Links) {
 	WriteJSON(w, http.StatusOK, data)
 }
 
-func AuthError(w http.ResponseWriter, code AuthErrorCode, description string, links Links) {
+func AuthError(w http.ResponseWriter, code AuthErrorCode, description string) {
 	SetAuthHeaders(w)
-	WriteJSON(w, http.StatusBadRequest, AuthErrorResponse{Error: code, ErrorDescription: description, Links: links})
+	WriteJSON(w, http.StatusBadRequest, AuthErrorResponse{Error: code, ErrorDescription: description})
 }
 
 func Unauthorized(w http.ResponseWriter, code AuthErrorCode, description string, links Links) {
@@ -232,7 +232,7 @@ func DecodeRequestBody[T any](r *http.Request) (data *T, err error) {
 	dec.DisallowUnknownFields()
 	err = dec.Decode(data)
 	if err != nil {
-		return nil, ErrFailedToDecode
+		return nil, ErrFailedDecode
 	}
 	if dec.More() {
 		return nil, ErrExtraDataDecoded
@@ -410,19 +410,17 @@ func CreateAccessToken(s Store, v Vault) http.HandlerFunc {
 	}
 
 	return func(w http.ResponseWriter, r *http.Request) {
-		var links Links
-
 		req, err := DecodeRequestBody[RequestBodyCreateToken](r)
 		if err != nil {
-			AuthError(w, AuthInvalidRequest, "invalid request body", links)
+			AuthError(w, AuthInvalidRequest, "invalid request body")
 			return
 		}
 		if req.GrantType != "refresh_token" {
-			AuthError(w, AuthUnsupportedGrantType, "grant_type must be refresh_token", links)
+			AuthError(w, AuthUnsupportedGrantType, "grant_type must be refresh_token")
 			return
 		}
 		if req.RefreshToken == "" {
-			AuthError(w, AuthInvalidGrant, "refresh_token is required", links)
+			AuthError(w, AuthInvalidGrant, "refresh_token is required")
 			return
 		}
 
@@ -432,14 +430,14 @@ func CreateAccessToken(s Store, v Vault) http.HandlerFunc {
 				"refresh token parsing failed",
 				"err", err,
 			)
-			AuthError(w, AuthInvalidGrant, "invalid refresh token", links)
+			AuthError(w, AuthInvalidGrant, "invalid refresh token")
 			return
 		}
 
 		isRefreshTokenRevoked, err := s.ValidateActiveSession(claims.JTI)
 		if err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
-				AuthError(w, AuthInvalidGrant, "invalid refresh token", links)
+				AuthError(w, AuthInvalidGrant, "invalid refresh token")
 				return
 			}
 			slog.Error(
@@ -447,7 +445,7 @@ func CreateAccessToken(s Store, v Vault) http.HandlerFunc {
 				"err", err,
 				"jti", claims.JTI,
 			)
-			AuthError(w, AuthInvalidRequest, "internal server error", links)
+			AuthError(w, AuthInvalidRequest, "internal server error")
 			return
 		}
 		if isRefreshTokenRevoked {
@@ -457,29 +455,49 @@ func CreateAccessToken(s Store, v Vault) http.HandlerFunc {
 				"user_id", claims.UserID,
 				"ip", r.RemoteAddr,
 			)
-			AuthError(w, AuthInvalidGrant, "invalid refresh token", links)
+			AuthError(w, AuthInvalidGrant, "invalid refresh token")
 			return
 		}
 
-		accessToken, err := v.CreateAccessToken(claims.UserID, claims.Provider, "")
+		roles, err := s.GetUserRoles(claims.UserID, Provider(claims.Provider))
+		if err != nil {
+			slog.Error(
+				"could not get roles for the user",
+				"err", err,
+				"user_id", claims.UserID,
+			)
+			AuthError(w, AuthInvalidRequest, "internal server error")
+			return
+		}
+
+		scope, err := v.GetScopeForRoles(roles)
+		if err != nil {
+			slog.Error(
+				"could not get scope for the user with the following roles",
+				"err", err,
+				"user_id", claims.UserID,
+				"roles", roles,
+			)
+			AuthError(w, AuthInvalidRequest, "internal server error")
+			return
+		}
+		accessToken, err := v.CreateAccessToken(claims.UserID, claims.Provider, scope)
 		if err != nil {
 			slog.Error(
 				"token creation failed",
 				"err", err,
 				"user_id", claims.UserID,
 			)
-			AuthError(w, AuthInvalidRequest, "internal server error", links)
+			AuthError(w, AuthInvalidRequest, "internal server error")
 			return
 		}
 
-		AuthAccessToken(w, *accessToken, links)
+		AuthAccessToken(w, *accessToken)
 	}
 }
 
 func Login(v Vault) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		var links Links
-
 		provider := r.PathValue("provider")
 
 		state, err := v.CreateStateToken()
@@ -488,7 +506,7 @@ func Login(v Vault) http.HandlerFunc {
 				"generation of state token failed",
 				"err", err,
 			)
-			AuthError(w, AuthInvalidRequest, "internal server error", links)
+			AuthError(w, AuthInvalidRequest, "internal server error")
 			return
 		}
 
@@ -519,7 +537,7 @@ func Login(v Vault) http.HandlerFunc {
 
 		url, err := v.CreateAuthCodeURL(state, verifier, provider)
 		if errors.Is(err, ErrInvalidProvider) {
-			AuthError(w, AuthInvalidRequest, "invalid provider", links)
+			AuthError(w, AuthInvalidRequest, "invalid provider")
 			return
 		}
 		if err != nil {
@@ -527,7 +545,7 @@ func Login(v Vault) http.HandlerFunc {
 				"generation of auth code url failed",
 				"err", err,
 			)
-			AuthError(w, AuthInvalidRequest, "internal server error", links)
+			AuthError(w, AuthInvalidRequest, "internal server error")
 			return
 		}
 
@@ -537,8 +555,6 @@ func Login(v Vault) http.HandlerFunc {
 
 func RedirectProvider(s Store, v Vault) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		var links Links
-
 		provider := r.PathValue("provider")
 
 		switch provider {
@@ -549,37 +565,35 @@ func RedirectProvider(s Store, v Vault) http.HandlerFunc {
 			AppleCallback(s, v, w, r)
 			return
 		default:
-			AuthError(w, AuthInvalidRequest, "invalid provider", links)
+			AuthError(w, AuthInvalidRequest, "invalid provider")
 			return
 		}
 	}
 }
 
 func GoogleCallback(s Store, v Vault, w http.ResponseWriter, r *http.Request) {
-	var links Links
-
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 
 	stateCookie, err := r.Cookie("oauth_state")
 	if err != nil {
-		AuthError(w, AuthInvalidRequest, "invalid state", links)
+		AuthError(w, AuthInvalidRequest, "invalid state")
 		return
 	}
 	stateQuery := r.URL.Query().Get("state")
 	if stateCookie.Value != stateQuery || !v.ValidateAndDeleteStateToken(stateQuery) {
-		AuthError(w, AuthInvalidRequest, "invalid state", links)
+		AuthError(w, AuthInvalidRequest, "invalid state")
 		return
 	}
 
 	verifierCookie, err := r.Cookie("oauth_verifier")
 	if err != nil {
-		AuthError(w, AuthInvalidRequest, "invalid oauth_verifier", links)
+		AuthError(w, AuthInvalidRequest, "invalid oauth_verifier")
 		return
 	}
 
 	if errParam := r.URL.Query().Get("error"); errParam != "" {
-		AuthError(w, AuthInvalidRequest, "authorization provider error", links)
+		AuthError(w, AuthInvalidRequest, "authorization provider error")
 		return
 	}
 
@@ -587,13 +601,13 @@ func GoogleCallback(s Store, v Vault, w http.ResponseWriter, r *http.Request) {
 
 	code := r.URL.Query().Get("code")
 	if code == "" {
-		AuthError(w, AuthInvalidRequest, "invalid code", links)
+		AuthError(w, AuthInvalidRequest, "invalid code")
 		return
 	}
 
 	rawIDToken, err := v.ExchangeGoogleCodeForIDToken(ctx, code, verifierCookie)
 	if errors.Is(err, ErrIDTokenRequired) {
-		AuthError(w, AuthInvalidRequest, "id_token is required", links)
+		AuthError(w, AuthInvalidRequest, "id_token is required")
 		return
 	}
 	if err != nil {
@@ -601,21 +615,21 @@ func GoogleCallback(s Store, v Vault, w http.ResponseWriter, r *http.Request) {
 			"oauth token exchange failed",
 			"err", err,
 		)
-		AuthError(w, AuthInvalidRequest, "internal server error", links)
+		AuthError(w, AuthInvalidRequest, "internal server error")
 		return
 	}
 
 	user, err := v.VerifyAndParseGoogleIDToken(ctx, rawIDToken)
 	if errors.Is(err, ErrInvalidIDToken) {
-		AuthError(w, AuthInvalidRequest, "invalid id_token", links)
+		AuthError(w, AuthInvalidRequest, "invalid id_token")
 		return
 	}
-	if errors.Is(err, ErrFailedToParseClaims) {
-		AuthError(w, AuthInvalidRequest, "failed to parse claims", links)
+	if errors.Is(err, ErrFailedParseClaims) {
+		AuthError(w, AuthInvalidRequest, "failed to parse claims")
 		return
 	}
 	if errors.Is(err, ErrEmailNotVerified) {
-		AuthError(w, AuthInvalidRequest, "email not verified", links)
+		AuthError(w, AuthInvalidRequest, "email not verified")
 		return
 	}
 	if err != nil {
@@ -623,7 +637,7 @@ func GoogleCallback(s Store, v Vault, w http.ResponseWriter, r *http.Request) {
 			"id_token verification failed",
 			"err", err,
 		)
-		AuthError(w, AuthInvalidRequest, "internal server error", links)
+		AuthError(w, AuthInvalidRequest, "internal server error")
 		return
 	}
 
@@ -631,42 +645,40 @@ func GoogleCallback(s Store, v Vault, w http.ResponseWriter, r *http.Request) {
 }
 
 func AppleCallback(s Store, v Vault, w http.ResponseWriter, r *http.Request) {
-	var links Links
-
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 
 	stateCookie, err := r.Cookie("oauth_state")
 	if err != nil {
-		AuthError(w, AuthInvalidRequest, "invalid state", links)
+		AuthError(w, AuthInvalidRequest, "invalid state")
 		return
 	}
 	stateQuery := r.URL.Query().Get("state")
 	if stateCookie.Value != stateQuery || !v.ValidateAndDeleteStateToken(stateQuery) {
-		AuthError(w, AuthInvalidRequest, "invalid state", links)
+		AuthError(w, AuthInvalidRequest, "invalid state")
 		return
 	}
 
 	verifierCookie, err := r.Cookie("oauth_verifier")
 	if err != nil {
-		AuthError(w, AuthInvalidRequest, "invalid oauth_verifier", links)
+		AuthError(w, AuthInvalidRequest, "invalid oauth_verifier")
 		return
 	}
 
 	if errParam := r.URL.Query().Get("error"); errParam != "" {
-		AuthError(w, AuthInvalidRequest, "authorization provider error", links)
+		AuthError(w, AuthInvalidRequest, "authorization provider error")
 		return
 	}
 
 	code := r.URL.Query().Get("code")
 	if code == "" {
-		AuthError(w, AuthInvalidRequest, "invalid code", links)
+		AuthError(w, AuthInvalidRequest, "invalid code")
 		return
 	}
 
 	rawIDToken, err := v.ExchangeAppleCodeForIDToken(ctx, code, verifierCookie)
 	if errors.Is(err, ErrIDTokenRequired) {
-		AuthError(w, AuthInvalidRequest, "id_token is required", links)
+		AuthError(w, AuthInvalidRequest, "id_token is required")
 		return
 	}
 	if err != nil {
@@ -674,17 +686,17 @@ func AppleCallback(s Store, v Vault, w http.ResponseWriter, r *http.Request) {
 			"oauth token exchange failed",
 			"err", err,
 		)
-		AuthError(w, AuthInvalidRequest, "internal server error", links)
+		AuthError(w, AuthInvalidRequest, "internal server error")
 		return
 	}
 
 	user, err := v.VerifyAndParseAppleIDToken(ctx, rawIDToken, r.FormValue("user"))
 	if errors.Is(err, ErrInvalidIDToken) {
-		AuthError(w, AuthInvalidRequest, "invalid id_token", links)
+		AuthError(w, AuthInvalidRequest, "invalid id_token")
 		return
 	}
-	if errors.Is(err, ErrFailedToParseClaims) {
-		AuthError(w, AuthInvalidRequest, "failed to parse claims", links)
+	if errors.Is(err, ErrFailedParseClaims) {
+		AuthError(w, AuthInvalidRequest, "failed to parse claims")
 		return
 	}
 	if err != nil {
@@ -692,7 +704,7 @@ func AppleCallback(s Store, v Vault, w http.ResponseWriter, r *http.Request) {
 			"id_token verification failed",
 			"err", err,
 		)
-		AuthError(w, AuthInvalidRequest, "internal server error", links)
+		AuthError(w, AuthInvalidRequest, "internal server error")
 		return
 	}
 
@@ -700,24 +712,22 @@ func AppleCallback(s Store, v Vault, w http.ResponseWriter, r *http.Request) {
 }
 
 func FinishAuthFlow(s Store, v Vault, w http.ResponseWriter, user User) {
-	var links Links
-
 	userID, roles, err := s.GetUserByProvider(user.Provider, user.ProviderUserID)
 
-	if errors.Is(err, ErrUserDoesNotExist) {
+	if errors.Is(err, ErrUserNotFound) {
 		userID, err := s.CreateUser(user)
 		if err != nil {
 			slog.Error(
 				"query failed",
 				"err", err,
 			)
-			AuthError(w, AuthInvalidRequest, "internal server error", links)
+			AuthError(w, AuthInvalidRequest, "internal server error")
 			return
 		}
 		CreateOnboardingToken(v, w, userID, user.Provider.Raw())
 		return
 	}
-	if errors.Is(err, ErrUserDoesNotHaveARole) {
+	if errors.Is(err, ErrUserNoRole) {
 		CreateOnboardingToken(v, w, userID, user.Provider.Raw())
 		return
 	}
@@ -726,7 +736,7 @@ func FinishAuthFlow(s Store, v Vault, w http.ResponseWriter, user User) {
 			"query failed",
 			"err", err,
 		)
-		AuthError(w, AuthInvalidRequest, "internal server error", links)
+		AuthError(w, AuthInvalidRequest, "internal server error")
 		return
 	}
 
@@ -734,19 +744,17 @@ func FinishAuthFlow(s Store, v Vault, w http.ResponseWriter, user User) {
 }
 
 func CreateOnboardingToken(v Vault, w http.ResponseWriter, userID string, provider string) {
-	var links Links
-
-	accessToken, err := v.CreateAccessToken(userID, provider, "onboarding")
+	accessToken, err := v.CreateAccessToken(userID, provider, ScopeTypeOnboarding)
 	if err != nil {
 		slog.Error(
 			"failed to create access token",
 			"err", err,
 		)
-		AuthError(w, AuthInvalidRequest, "internal server error", links)
+		AuthError(w, AuthInvalidRequest, "internal server error")
 		return
 	}
 
-	AuthAccessToken(w, *accessToken, links)
+	AuthAccessToken(w, *accessToken)
 }
 
 func CreateTokenPair(s Store, v Vault, w http.ResponseWriter, userID string, provider string, roles []string) {
@@ -758,17 +766,17 @@ func CreateTokenPair(s Store, v Vault, w http.ResponseWriter, userID string, pro
 			"failed to get scope for roles",
 			"err", err,
 		)
-		AuthError(w, AuthInvalidRequest, "internal server error", links)
+		AuthError(w, AuthInvalidRequest, "internal server error")
 		return
 	}
 
-	jti, err := s.CreateRefreshToken(userID, time.Now().UTC().Add(RefreshTokenExpiration.Abs()))
+	jti, err := s.CreateRefreshToken(userID, time.Now().UTC().Add(DefaultRefreshTokenExpiration.Abs()))
 	if err != nil {
 		slog.Error(
 			"query failed",
 			"err", err,
 		)
-		AuthError(w, AuthInvalidRequest, "internal server error", links)
+		AuthError(w, AuthInvalidRequest, "internal server error")
 		return
 	}
 
@@ -778,7 +786,7 @@ func CreateTokenPair(s Store, v Vault, w http.ResponseWriter, userID string, pro
 			"failed to create token pair",
 			"err", err,
 		)
-		AuthError(w, AuthInvalidRequest, "internal server error", links)
+		AuthError(w, AuthInvalidRequest, "internal server error")
 		return
 	}
 

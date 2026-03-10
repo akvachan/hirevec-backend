@@ -17,7 +17,7 @@ func ValidateName(name string) (string, error) {
 
 	reValid := regexp.MustCompile(`^[a-zA-Z\s'-]+$`)
 	if !reValid.MatchString(name) {
-		return "", ErrNameHasForbiddenChars
+		return "", ErrNameForbiddenChars
 	}
 
 	if len(name) < 1 {
@@ -38,7 +38,7 @@ func ValidateAbout(about string) (string, error) {
 
 	reValid := regexp.MustCompile(`^[a-zA-Z\s'-]+$`)
 	if !reValid.MatchString(about) {
-		return "", ErrAboutHasForbiddenChars
+		return "", ErrAboutForbiddenChars
 	}
 
 	if len(about) < 1 {

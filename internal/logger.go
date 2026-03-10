@@ -8,11 +8,11 @@ import (
 	"os"
 )
 
-const DefaultLogLevel = slog.LevelError
-
 type LoggerConfig struct {
 	Level slog.Level
 }
+
+const DefaultLogLevel = slog.LevelError
 
 func InitLogger(config LoggerConfig) {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: config.Level}))

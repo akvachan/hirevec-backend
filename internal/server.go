@@ -13,12 +13,6 @@ import (
 	"time"
 )
 
-const (
-	DefaultReadTimeout  = 2000 * time.Millisecond
-	DefaultWriteTimeout = 2000 * time.Millisecond
-	DefaultGracePeriod  = 5000 * time.Millisecond
-)
-
 type ServerConfig struct {
 	Protocol     string
 	Host         string
@@ -28,6 +22,12 @@ type ServerConfig struct {
 	GracePeriod  time.Duration
 }
 
+const (
+	DefaultReadTimeout  = 2000 * time.Millisecond
+	DefaultWriteTimeout = 2000 * time.Millisecond
+	DefaultGracePeriod  = 5000 * time.Millisecond
+)
+
 func RunServer(ctx context.Context, c ServerConfig, s Store, v Vault) error {
 	server, err := NewServer(ctx, c, s, v)
 	if err != nil {
@@ -36,7 +36,7 @@ func RunServer(ctx context.Context, c ServerConfig, s Store, v Vault) error {
 
 	listener, err := net.Listen("tcp", fmt.Sprintf("%s:%v", c.Host, c.Port))
 	if err != nil {
-		return ErrFailedToBindAddress(c.Host, err)
+		return ErrFailedBindAddress
 	}
 
 	return WaitAndShutdown(ctx, server, StartServer(server, listener), c.GracePeriod)
@@ -75,8 +75,8 @@ func WaitAndShutdown(ctx context.Context, server *http.Server, errCh chan error,
 	select {
 	case <-ctx.Done():
 		slog.Info("shutdown signal received")
-	case err := <-errCh:
-		return ErrFailedToShutdownServer(err)
+	case <-errCh:
+		return ErrFailedShutdownServer
 	}
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), gracePeriod)
@@ -89,7 +89,7 @@ func WaitAndShutdown(ctx context.Context, server *http.Server, errCh chan error,
 	if err := server.Shutdown(shutdownCtx); err != nil {
 		slog.Error("graceful shutdown failed, forcing close", "err", err)
 		server.Close()
-		return ErrFailedToShutdownServer(err)
+		return ErrFailedShutdownServer
 	}
 
 	slog.Info("HTTP server shutdown complete")

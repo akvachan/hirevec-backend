@@ -25,6 +25,7 @@ type (
 		GetPosition(id string) (*Position, error)
 		GetPositions(limit uint64, beforeID *string, afterID *string) (positions []Position, hasPrev bool, hasNext bool, err error)
 		GetUserByProvider(provider Provider, providerUserID string) (userID string, roles []string, err error)
+		GetUserRoles(userID string, provider Provider) (roles []string, err error)
 		ValidateActiveSession(jti string) (isSessionRevoked bool, err error)
 	}
 
@@ -52,7 +53,7 @@ func NewPostgresStore(c StoreConfig) (*PostgresStore, error) {
 	)
 	database, err := sql.Open("pgx", dbConnString)
 	if err != nil {
-		return nil, ErrFailedToConnectDB(err)
+		return nil, ErrFailedConnectDB
 	}
 	return &PostgresStore{Postgres: database}, nil
 }
@@ -257,6 +258,9 @@ func (s PostgresStore) GetCandidates(
 }
 
 // GetUserByProvider retrieves an existing user and his role based on their provider details.
+//
+// Returns ErrUserDoesNotExist as err if user with the provided providerUserID does not exist.
+// Returns ErrUserDoesNotHaveARole as err if user is found, but does not have any role.
 func (s PostgresStore) GetUserByProvider(provider Provider, providerUserID string) (userID string, roles []string, err error) {
 	var isCandidate, isRecruiter bool
 
@@ -279,7 +283,7 @@ func (s PostgresStore) GetUserByProvider(provider Provider, providerUserID strin
 	).Scan(&userID, &isCandidate, &isRecruiter)
 
 	if err == sql.ErrNoRows {
-		return "", nil, ErrUserDoesNotExist
+		return "", nil, fmt.Errorf("%w: providerUserID=%s", ErrUserNotFound, providerUserID)
 	}
 	if err != nil {
 		return "", nil, err
@@ -293,13 +297,68 @@ func (s PostgresStore) GetUserByProvider(provider Provider, providerUserID strin
 	}
 
 	if len(roles) == 0 {
-		return userID, nil, ErrUserDoesNotHaveARole
+		return userID, nil, ErrUserNoRole
 	}
 
 	return userID, roles, nil
 }
 
+// GetUserRoles fetches user roles by user's ID and provider.
+//
+// Returns ErrUserDoesNotExist as err if user with the provided userID does not exist.
+// Returns ErrUserDoesNotHaveARole as err if user is found, but does not have any role.
+func (s PostgresStore) GetUserRoles(userID string, provider Provider) (roles []string, err error) {
+	var isCandidate, isRecruiter, isAdmin bool
+
+	err = s.Postgres.QueryRow(
+		`
+		SELECT
+				u.id,
+				EXISTS (
+						SELECT 1 FROM v1.candidates c WHERE c.user_id = u.id
+				) AS is_candidate,
+				EXISTS (
+						SELECT 1 FROM v1.recruiters r WHERE r.user_id = u.id
+				) AS is_recruiter
+				EXISTS (
+						SELECT 1 FROM v1.admins r WHERE r.user_id = u.id
+				) AS is_admin
+		FROM v1.users u
+		WHERE u.user_id = $1
+			AND u.provider = $2
+		`,
+		userID,
+		provider,
+	).Scan(&isCandidate, &isRecruiter, &isAdmin)
+
+	if err == sql.ErrNoRows {
+		return nil, fmt.Errorf("%w: userID=%s", ErrUserNotFound, userID)
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	if isCandidate {
+		roles = append(roles, "candidate")
+	}
+	if isRecruiter {
+		roles = append(roles, "recruiter")
+	}
+	if isAdmin {
+		roles = append(roles, "admin")
+	}
+
+	if len(roles) == 0 {
+		return nil, ErrUserNoRole
+	}
+
+	return roles, nil
+}
+
 // CreateUser generates a unique username and inserts a new user record.
+//
+// Returns ErrNamesRequired as err if first name, last name or full name is an empty string.
+// Returns ErrFailedToGenerateUsernameSuffix as err if could not generate random username suffix.
 func (s PostgresStore) CreateUser(u User) (userID string, err error) {
 	if u.FirstName == "" || u.LastName == "" || u.FullName == "" {
 		return "", ErrNamesRequired
@@ -308,7 +367,7 @@ func (s PostgresStore) CreateUser(u User) (userID string, err error) {
 	suffix := make([]byte, 2)
 	_, err = rand.Read(suffix)
 	if err != nil {
-		return "", ErrFailedToGenerateUsernameSuffix(err)
+		return "", ErrFailedGenerateUsernameSuffix
 	}
 
 	userName := fmt.Sprintf("%s_%s_%s",

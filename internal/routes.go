@@ -9,7 +9,24 @@ import (
 	"time"
 )
 
-type Method string
+type (
+	Method string
+
+	PublicRouteConfig struct {
+		Mux     *http.ServeMux
+		Method  Method
+		Route   string
+		Handler http.HandlerFunc
+	}
+
+	ProtectedRouteConfig struct {
+		Mux            *http.ServeMux
+		Method         Method
+		Route          string
+		Handler        http.HandlerFunc
+		RequiredScopes []ScopeType
+	}
+)
 
 const (
 	RouteHealth            = "/v1/health"
@@ -25,50 +42,147 @@ const (
 	MethodPost      Method = http.MethodPost
 )
 
-func PublicRoute(m *http.ServeMux, method Method, route string, handler http.HandlerFunc, mdw ...Middleware) {
-	routeWithMethod := fmt.Sprintf("%s %s", method, route)
+func PublicRoute(s Store, v Vault, cfg PublicRouteConfig) {
+	routeWithMethod := fmt.Sprintf("%s %s", cfg.Method, cfg.Route)
 	rlcfg := NewRateLimiterConfig(60, time.Minute)
 	basic := Chain(
-		handler,
+		cfg.Handler,
 		Logger,
 		ErrorHandler,
 		RateLimiter(rlcfg),
 		MaxBytesLimiter,
 	)
 
-	m.Handle(routeWithMethod, Chain(basic, mdw...))
+	cfg.Mux.Handle(routeWithMethod, basic)
 }
 
-func ProtectedRoute(mux *http.ServeMux, method Method, route string, handler http.HandlerFunc, mdw ...Middleware) {
-	routeWithMethod := fmt.Sprintf("%s %s", method, route)
+func ProtectedRoute(s Store, v Vault, cfg ProtectedRouteConfig) {
+	routeWithMethod := fmt.Sprintf("%s %s", cfg.Method, cfg.Route)
 	rlcfg := NewRateLimiterConfig(120, time.Minute)
 	basic := Chain(
-		handler,
+		cfg.Handler,
 		Logger,
 		ErrorHandler,
 		RateLimiter(rlcfg),
 		MaxBytesLimiter,
+		Authentication(v, cfg.RequiredScopes),
 	)
 
-	mux.Handle(routeWithMethod, Chain(basic, mdw...))
+	cfg.Mux.Handle(routeWithMethod, basic)
 }
 
 func GetRootMux(s Store, v Vault) http.Handler {
 	mux := http.NewServeMux()
-	pcfg := NewPaginatorConfig(PageSizeDefaultLimit, PageSizeMaxLimit)
+	pcfg := NewPaginatorConfig(DefaultPageSizeLimit, PageSizeMaxLimit)
 
-	PublicRoute(mux, MethodGet, RouteHealth, Health)
-	PublicRoute(mux, MethodGet, RoutePublicKeys, PublicKeys(v))
-	PublicRoute(mux, MethodPost, RouteToken, CreateAccessToken(s, v))
-	PublicRoute(mux, MethodGet, RouteLogin, Login(v))
-	PublicRoute(mux, MethodPost, RouteLogin, Login(v))
-	PublicRoute(mux, MethodGet, RouteCallback, RedirectProvider(s, v))
-	PublicRoute(mux, MethodPost, RouteCallback, RedirectProvider(s, v))
+	PublicRoute(
+		s, v,
+		PublicRouteConfig{
+			mux,
+			MethodGet,
+			RouteHealth,
+			Health,
+		},
+	)
+	PublicRoute(
+		s, v,
+		PublicRouteConfig{
+			mux,
+			MethodGet,
+			RoutePublicKeys,
+			PublicKeys(v),
+		},
+	)
+	PublicRoute(
+		s, v,
+		PublicRouteConfig{
+			mux,
+			MethodPost,
+			RouteToken,
+			CreateAccessToken(s, v),
+		},
+	)
+	PublicRoute(
+		s, v,
+		PublicRouteConfig{
+			mux,
+			MethodGet,
+			RouteLogin,
+			Login(v),
+		},
+	)
+	PublicRoute(
+		s, v,
+		PublicRouteConfig{
+			mux,
+			MethodPost,
+			RouteLogin,
+			Login(v),
+		})
+	PublicRoute(
+		s, v,
+		PublicRouteConfig{
+			mux,
+			MethodGet,
+			RouteCallback,
+			RedirectProvider(s, v),
+		})
+	PublicRoute(
+		s, v,
+		PublicRouteConfig{
+			mux,
+			MethodPost,
+			RouteCallback,
+			RedirectProvider(s, v),
+		},
+	)
 
-	ProtectedRoute(mux, MethodGet, RoutePosition, GetPosition(s))
-	ProtectedRoute(mux, MethodGet, RoutePositions, GetPositions(s), Paginator(pcfg))
-	ProtectedRoute(mux, MethodGet, RouteCandidate, GetCandidate(s))
-	ProtectedRoute(mux, MethodGet, RouteCandidates, GetCandidates(s), Paginator(pcfg))
+	ProtectedRoute(
+		s, v,
+		ProtectedRouteConfig{
+			mux,
+			MethodGet,
+			RoutePosition,
+			GetPosition(s),
+			[]ScopeType{ScopeTypeAdmin},
+		},
+	)
+	ProtectedRoute(
+		s, v,
+		ProtectedRouteConfig{
+			mux,
+			MethodGet,
+			RoutePositions,
+			Chain(
+				GetPositions(s),
+				Paginator(pcfg),
+			),
+			[]ScopeType{ScopeTypeAdmin},
+		},
+	)
+	ProtectedRoute(
+		s, v,
+		ProtectedRouteConfig{
+			mux,
+			MethodGet,
+			RouteCandidate,
+			GetCandidate(s),
+			[]ScopeType{ScopeTypeAdmin},
+		},
+	)
+	ProtectedRoute(
+		s, v,
+		ProtectedRouteConfig{
+			mux,
+			MethodGet,
+			RouteCandidates,
+			Chain(
+				GetCandidates(s),
+				Paginator(pcfg),
+			),
+			[]ScopeType{ScopeTypeAdmin},
+		},
+	)
 
 	return mux
 }

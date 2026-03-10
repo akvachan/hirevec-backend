@@ -19,7 +19,7 @@ Anyone can access authentication endpoint (currently `/v1/auth/login/{provider}`
 After successful authentication:
 
 - If the user already has a profile, the client is issued a pair of access and refresh tokens with the appropriate scopes based on their profile type (candidate or recruiter).
-- If the user does not have a profile, the client is issued a short-lived onboarding access token (24 hours) with the `candidates:write`, `recruiters:write` scope, which allows them to create one candidate and one recruiter profile.
+- If the user does not have a profile, the client is issued a short-lived onboarding access token (24 hours) with the `role:onboarding` scope, which allows them to create one candidate and one recruiter profile.
 - If the onboarding access token expires before the user creates a profile, they can simply authenticate again to obtain a new registration access token.
 
 Refresh tokens are not stored in the DB, nor are their hashes, instead their JTIs are stored.
@@ -33,8 +33,8 @@ Server uses scope-based authorization:
 
 - `role:recruiter`: Recruiter role
 - `role:candidate`: Candidate role
-- `candidates:write`: Can write to the candidates table
-- `recruiters:write`: Can write to the recruiters table
+- `role:admin`: Can use general endpoints
+- `role:onboarding`: Can write to the candidates table once and can write to the recruiters table once
 
 Authentication and authorization are handled by middleware, so all protected endpoints will require a valid access token with the appropriate scopes.
 Handlers do not need to worry about authentication and authorization, they can assume that if the request reaches them, the user is authenticated and authorized to perform the action.

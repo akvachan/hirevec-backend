@@ -11,69 +11,88 @@ import (
 	"aidanwoods.dev/go-paseto"
 )
 
+type (
+	ScopeType string
+
+	ClaimType string
+
+	IssuedTokenType string
+
+	StateStore struct {
+		mu     sync.RWMutex
+		states map[string]time.Time
+	}
+
+	PasetoKey struct {
+		Version uint8  `json:"version"`
+		Kid     uint32 `json:"kid"`
+		Key     []byte `json:"key"`
+	}
+
+	PublicPasetoKeys struct {
+		Keys []PasetoKey `json:"keys"`
+	}
+
+	RefreshTokenClaims struct {
+		UserID   string
+		Provider string
+		JTI      string
+	}
+
+	AccessTokenClaims struct {
+		UserID   string
+		Provider string
+		Scope    ScopeType
+	}
+
+	AccessToken struct {
+		AccessToken string `json:"access_token"`
+		TokenType   string `json:"token_type"`
+		ExpiresIn   uint32 `json:"expires_in"`
+		Scope       string `json:"scope"`
+		UserID      string `json:"user_id"`
+	}
+
+	RefreshToken struct {
+		RefreshToken string `json:"refresh_token"`
+		ExpiresIn    uint32 `json:"expires_in"`
+		UserID       string `json:"user_id"`
+	}
+
+	TokenPair struct {
+		AccessToken  string `json:"access_token"`
+		TokenType    string `json:"token_type"`
+		ExpiresIn    uint32 `json:"expires_in"`
+		RefreshToken string `json:"refresh_token"`
+		Scope        string `json:"scope"`
+		UserID       string `json:"user_id"`
+	}
+)
+
 var stateStore = &StateStore{
 	states: make(map[string]time.Time),
 }
 
-type IssuedTokenType string
-
 const (
-	IssuedTokenTypeRefreshToken IssuedTokenType = "urn:ietf:params:oauth:token-type:refresh_token"
-	IssuedTokenTypeAccessToken  IssuedTokenType = "urn:ietf:params:oauth:token-type:access_token"
-	RefreshTokenExpiration                      = 30 * 24 * time.Hour
-	AccessTokenExpiration                       = 30 * time.Minute
+	IssuedTokenTypeRefreshToken   IssuedTokenType = "urn:ietf:params:oauth:token-type:refresh_token"
+	IssuedTokenTypeAccessToken    IssuedTokenType = "urn:ietf:params:oauth:token-type:access_token"
+	DefaultRefreshTokenExpiration                 = 30 * 24 * time.Hour
+	DefaultAccessTokenExpiration                  = 30 * time.Minute
+	ScopeTypeCandidate                            = "role:candidate"
+	ScopeTypeRecruiter                            = "role:recruiter"
+	ScopeTypeAdmin                                = "role:admin"
+	ScopeTypeOnboarding                           = "role:onboarding"
+	TokenAudience                                 = "api.hirevec.com"
+	TokenIssuer                                   = "api.hirevec.com"
 )
 
-type StateStore struct {
-	mu     sync.RWMutex
-	states map[string]time.Time
-}
-
-// PasetoKey defines the public key structure within PublicPasetoKeys.
-type PasetoKey struct {
-	Version uint8  `json:"version"`
-	Kid     uint32 `json:"kid"`
-	Key     []byte `json:"key"`
-}
-
-// PublicPasetoKeys defines the API response from the endpoint that serves public keys.
-type PublicPasetoKeys struct {
-	Keys []PasetoKey `json:"keys"`
-}
-
-type RefreshTokenClaims struct {
-	UserID   string
-	Provider string
-	JTI      string
-}
-
-type AccessTokenClaims struct {
-	UserID   string
-	Provider string
-	Scope    string
-}
-
-type AccessToken struct {
-	AccessToken string `json:"access_token"`
-	TokenType   string `json:"token_type"`
-	ExpiresIn   uint32 `json:"expires_in"`
-	Scope       string `json:"scope"`
-	UserID      string `json:"user_id"`
-}
-
-type RefreshToken struct {
-	RefreshToken string `json:"refresh_token"`
-	ExpiresIn    uint32 `json:"expires_in"`
-	UserID       string `json:"user_id"`
-}
-
-type TokenPair struct {
-	AccessToken  string `json:"access_token"`
-	TokenType    string `json:"token_type"`
-	ExpiresIn    uint32 `json:"expires_in"`
-	RefreshToken string `json:"refresh_token"`
-	Scope        string `json:"scope"`
-	UserID       string `json:"user_id"`
+func NewScope(scope string) (ScopeType, error) {
+	switch scope {
+	case ScopeTypeAdmin, ScopeTypeOnboarding, ScopeTypeCandidate, ScopeTypeRecruiter:
+		return ScopeType(scope), nil
+	default:
+		return "", ErrInvalidScopeType
+	}
 }
 
 func (v PasetoVault) ParseAccessToken(tokenString string) (*AccessTokenClaims, error) {
@@ -89,7 +108,7 @@ func (v PasetoVault) ParseAccessToken(tokenString string) (*AccessTokenClaims, e
 
 	provider, err := parsedToken.GetString("provider")
 	if err != nil {
-		return nil, ErrFailedToParseProvider
+		return nil, ErrFailedParseProvider
 	}
 	if provider != "apple" && provider != "google" {
 		return nil, ErrInvalidProvider
@@ -97,13 +116,18 @@ func (v PasetoVault) ParseAccessToken(tokenString string) (*AccessTokenClaims, e
 
 	scope, err := parsedToken.GetString("scope")
 	if err != nil {
-		return nil, ErrFailedToParseScope
+		return nil, ErrFailedParseScope
+	}
+
+	validScope, err := NewScope(scope)
+	if err != nil {
+		return nil, ErrInvalidScopeType
 	}
 
 	return &AccessTokenClaims{
 		UserID:   userID,
 		Provider: provider,
-		Scope:    scope,
+		Scope:    validScope,
 	}, nil
 }
 
@@ -120,7 +144,7 @@ func (v PasetoVault) ParseRefreshToken(tokenString string) (*RefreshTokenClaims,
 
 	provider, err := parsedToken.GetString("provider")
 	if err != nil {
-		return nil, ErrFailedToParseProvider
+		return nil, ErrFailedParseProvider
 	}
 	if provider != "apple" && provider != "google" {
 		return nil, ErrInvalidProvider
@@ -128,7 +152,7 @@ func (v PasetoVault) ParseRefreshToken(tokenString string) (*RefreshTokenClaims,
 
 	tokenType, err := parsedToken.GetString("type")
 	if err != nil {
-		return nil, ErrFailedToParseTokenType
+		return nil, ErrFailedParseTokenType
 	}
 	if tokenType != "refresh" {
 		return nil, ErrInvalidTokenType
@@ -136,7 +160,7 @@ func (v PasetoVault) ParseRefreshToken(tokenString string) (*RefreshTokenClaims,
 
 	jti, err := parsedToken.GetJti()
 	if err != nil || jti == "" {
-		return nil, ErrFailedToParseJTI
+		return nil, ErrFailedParseJTI
 	}
 
 	return &RefreshTokenClaims{
@@ -154,26 +178,29 @@ func (v PasetoVault) CreateAccessToken(userID string, provider string, scope str
 	now := time.Now().UTC()
 
 	var expiration time.Duration
-	if scope == "onboarding" {
+	switch {
+	case scope == ScopeTypeOnboarding:
 		expiration = 24 * time.Hour
-	} else {
-		expiration = AccessTokenExpiration
+	case v.AccessTokenExpiration != 0:
+		expiration = v.AccessTokenExpiration
+	default:
+		expiration = DefaultAccessTokenExpiration
 	}
 
 	token := paseto.NewToken()
-	token.SetAudience("hirevec-api")
-	token.SetIssuer("hirevec")
+	token.SetAudience(TokenAudience)
+	token.SetIssuer(TokenIssuer)
 	token.SetSubject(userID)
 	token.SetExpiration(now.Add(expiration))
 	token.SetNotBefore(now)
 	token.SetIssuedAt(now)
 
 	if err := token.Set("token_type", IssuedTokenTypeAccessToken); err != nil {
-		return nil, ErrFailedToSetTokenType
+		return nil, ErrFailedSetTokenType
 	}
 
 	if err := token.Set("provider", provider); err != nil {
-		return nil, ErrFailedToSetProvider
+		return nil, ErrFailedSetProvider
 	}
 
 	token.SetString("scope", scope)
@@ -191,25 +218,32 @@ func (v PasetoVault) CreateRefreshToken(userID string, provider string, jti stri
 	now := time.Now().UTC()
 
 	token := paseto.NewToken()
-	token.SetAudience("hirevec-api")
-	token.SetIssuer("hirevec")
+	token.SetAudience(TokenAudience)
+	token.SetIssuer(TokenIssuer)
 	token.SetSubject(userID)
-	token.SetExpiration(now.Add(RefreshTokenExpiration))
+	token.SetExpiration(now.Add(DefaultRefreshTokenExpiration))
 	token.SetNotBefore(now)
 	token.SetIssuedAt(now)
 	token.SetJti(jti)
 
 	if err := token.Set("token_type", IssuedTokenTypeRefreshToken); err != nil {
-		return nil, ErrFailedToSetTokenType
+		return nil, ErrFailedSetTokenType
 	}
 
 	if err := token.Set("provider", provider); err != nil {
-		return nil, ErrFailedToSetProvider
+		return nil, ErrFailedSetProvider
+	}
+
+	var expiresIn uint32
+	if v.RefreshTokenExpiration != 0 {
+		expiresIn = uint32(v.RefreshTokenExpiration.Abs().Seconds())
+	} else {
+		expiresIn = uint32(DefaultRefreshTokenExpiration.Abs().Seconds())
 	}
 
 	return &RefreshToken{
 		RefreshToken: token.V4Encrypt(v.V4SymmetricKey, nil),
-		ExpiresIn:    uint32(RefreshTokenExpiration.Abs().Seconds()),
+		ExpiresIn:    expiresIn,
 		UserID:       userID,
 	}, nil
 }
@@ -217,18 +251,18 @@ func (v PasetoVault) CreateRefreshToken(userID string, provider string, jti stri
 func (v PasetoVault) CreateTokenPair(userID string, provider string, jti string, scope string) (*TokenPair, error) {
 	accessToken, err := v.CreateAccessToken(userID, provider, scope)
 	if err != nil {
-		return nil, ErrFailedToCreateAccessToken(err)
+		return nil, ErrFailedCreateAccessToken
 	}
 
 	refreshToken, err := v.CreateRefreshToken(userID, provider, jti)
 	if err != nil {
-		return nil, ErrFailedToCreateRefreshToken(err)
+		return nil, ErrFailedCreateRefreshToken
 	}
 
 	return &TokenPair{
 		AccessToken:  accessToken.AccessToken,
 		TokenType:    "Bearer",
-		ExpiresIn:    uint32(AccessTokenExpiration.Abs().Seconds()),
+		ExpiresIn:    uint32(DefaultAccessTokenExpiration.Abs().Seconds()),
 		RefreshToken: refreshToken.RefreshToken,
 		Scope:        scope,
 		UserID:       userID,
@@ -240,7 +274,7 @@ func (v PasetoVault) GetScopeForRoles(roles []string) (string, error) {
 
 	for _, r := range roles {
 		switch r {
-		case "candidate", "recruiter":
+		case "candidate", "recruiter", "admin":
 			scopes = append(scopes, "role:"+r)
 		default:
 			return "", ErrInvalidRole

@@ -1,0 +1,48 @@
+# Go build artifacts
+/bin/
+/obj/
+/out/
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Dependency directories
+/vendor/
+/go/pkg/
+
+# Docker files
+Dockerfile*
+docker-compose.override.yml
+docker-compose.yml
+
+# Git
+.git
+.gitignore
+
+# IDE / editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Node / frontend (if present)
+node_modules/
+dist/
+build/
+
+# Logs and temp files
+*.log
+tmp/
+*.tmp
+*.cache
+
+# Ignore environment files
+.env
+
+# Docs
+docs/

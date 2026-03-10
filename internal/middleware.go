@@ -7,25 +7,54 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 )
 
-type ContextKey string
+type (
+	ContextKey string
 
-type Visitor struct {
-	Tokens     uint
-	LastRefill time.Time
-}
+	Visitor struct {
+		Tokens     uint
+		LastRefill time.Time
+	}
 
-type RateLimiterConfig struct {
-	MaxRequests uint
-	Window      time.Duration
-	Visitors    map[string]*Visitor
-	Mu          sync.RWMutex
-}
+	RateLimiterConfig struct {
+		MaxRequests uint
+		Window      time.Duration
+		Visitors    map[string]*Visitor
+		Mu          sync.RWMutex
+	}
+
+	PaginatorConfig struct {
+		DefaultLimit uint64
+		MaxLimit     uint64
+	}
+
+	Pagination struct {
+		Limit  uint64 `json:"limit"`
+		After  string `json:"after,omitempty"`
+		Before string `json:"before,omitempty"`
+	}
+
+	Middleware func(http.HandlerFunc) http.HandlerFunc
+
+	ResponseWriter struct {
+		http.ResponseWriter
+		status int
+	}
+)
+
+const (
+	DefaultPageSizeLimit            = 50
+	PageSizeMaxLimit                = 100
+	ContextKeyPagination ContextKey = "pagination"
+	ContextKeyUserID     ContextKey = "user_id"
+	ContextKeyClaims     ContextKey = "claims"
+)
 
 func NewRateLimiterConfig(maxRequests uint, window time.Duration) *RateLimiterConfig {
 	rl := &RateLimiterConfig{
@@ -81,8 +110,6 @@ func (rl *RateLimiterConfig) allow(ip string) bool {
 	return false
 }
 
-type Middleware func(http.HandlerFunc) http.HandlerFunc
-
 func RateLimiter(rlc *RateLimiterConfig) Middleware {
 	return func(next http.HandlerFunc) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
@@ -101,16 +128,6 @@ func RateLimiter(rlc *RateLimiterConfig) Middleware {
 	}
 }
 
-const (
-	PageSizeDefaultLimit = 50
-	PageSizeMaxLimit     = 100
-)
-
-type PaginatorConfig struct {
-	DefaultLimit uint64
-	MaxLimit     uint64
-}
-
 func NewPaginatorConfig(defaultLimit uint64, maxLimit uint64) PaginatorConfig {
 	return PaginatorConfig{
 		defaultLimit,
@@ -118,19 +135,11 @@ func NewPaginatorConfig(defaultLimit uint64, maxLimit uint64) PaginatorConfig {
 	}
 }
 
-type Pagination struct {
-	Limit  uint64 `json:"limit"`
-	After  string `json:"after,omitempty"`
-	Before string `json:"before,omitempty"`
-}
-
-const ContextKeyPagination ContextKey = "pagination"
-
 func GetPagination(r *http.Request) Pagination {
 	p, ok := r.Context().Value(ContextKeyPagination).(Pagination)
 	if !ok {
 		return Pagination{
-			Limit:  PageSizeDefaultLimit,
+			Limit:  DefaultPageSizeLimit,
 			After:  "",
 			Before: "",
 		}
@@ -174,11 +183,6 @@ func Chain(handler http.HandlerFunc, middlewares ...Middleware) http.HandlerFunc
 	return wrapped
 }
 
-type ResponseWriter struct {
-	http.ResponseWriter
-	status int
-}
-
 func (rw *ResponseWriter) WriteHeader(code int) {
 	rw.status = code
 	rw.ResponseWriter.WriteHeader(code)
@@ -199,11 +203,6 @@ func ErrorHandler(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
-const (
-	ContextKeyUserID ContextKey = "user_id"
-	ContextKeyClaims ContextKey = "claims"
-)
-
 func GetUserID(ctx context.Context) (string, bool) {
 	userID, ok := ctx.Value(ContextKeyUserID).(string)
 	return userID, ok
@@ -214,22 +213,35 @@ func GetClaims(ctx context.Context) (*AccessTokenClaims, bool) {
 	return claims, ok
 }
 
-func Authentication(v Vault) Middleware {
+func Authentication(v Vault, allowedForScopes []ScopeType) Middleware {
 	return func(next http.HandlerFunc) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
+			var bearer string
+
 			authHeader := r.Header.Get("Authorization")
-			bearer, found := strings.CutPrefix(authHeader, "Bearer ")
-			if !found || bearer == "" {
-				Unauthorized(w, AuthInvalidClient, "Bearer token is required", nil)
-				return
+			if authHeader != "" {
+				var found bool
+				bearer, found = strings.CutPrefix(authHeader, "Bearer ")
+				if !found || bearer == "" {
+					Unauthorized(w, AuthInvalidClient, "Bearer token is required", nil)
+					return
+				}
 			}
+
 			claims, err := v.ParseAccessToken(bearer)
-			if err != nil {
-				AuthError(w, AuthInvalidRequest, "invalid access token", nil)
+			if err != nil || claims == nil {
+				AuthError(w, AuthInvalidRequest, "invalid access token")
 				return
 			}
+
+			if !slices.Contains(allowedForScopes, ScopeType(claims.Scope)) {
+				AuthError(w, AuthInvalidRequest, "permissions denied")
+				return
+			}
+
 			ctx := context.WithValue(r.Context(), ContextKeyUserID, claims.UserID)
 			ctx = context.WithValue(ctx, ContextKeyClaims, claims)
+
 			next.ServeHTTP(w, r.WithContext(ctx))
 		}
 	}

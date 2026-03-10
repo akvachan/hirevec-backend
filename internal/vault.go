@@ -37,24 +37,28 @@ type Vault interface {
 }
 
 type VaultConfig struct {
-	Host               string
-	Port               string
-	SymmetricKeyHex    string
-	AsymmetricKeyHex   string
-	GoogleClientID     string
-	GoogleClientSecret string
-	AppleClientID      string
-	AppleClientSecret  string
+	Host                   string
+	Port                   string
+	SymmetricKeyHex        string
+	AsymmetricKeyHex       string
+	GoogleClientID         string
+	GoogleClientSecret     string
+	AppleClientID          string
+	AppleClientSecret      string
+	RefreshTokenExpiration time.Duration
+	AccessTokenExpiration  time.Duration
 }
 
 type PasetoVault struct {
-	AccessTokenParser     paseto.Parser
-	RefreshTokenParser    paseto.Parser
-	V4AsymetricPublicKey  paseto.V4AsymmetricPublicKey
-	V4AsymmetricSecretKey paseto.V4AsymmetricSecretKey
-	V4SymmetricKey        paseto.V4SymmetricKey
-	GoogleOIDCConfig      OIDCConfig
-	AppleOIDCConfig       OIDCConfig
+	AccessTokenParser      paseto.Parser
+	RefreshTokenParser     paseto.Parser
+	V4AsymetricPublicKey   paseto.V4AsymmetricPublicKey
+	V4AsymmetricSecretKey  paseto.V4AsymmetricSecretKey
+	V4SymmetricKey         paseto.V4SymmetricKey
+	GoogleOIDCConfig       OIDCConfig
+	AppleOIDCConfig        OIDCConfig
+	RefreshTokenExpiration time.Duration
+	AccessTokenExpiration  time.Duration
 }
 
 type OIDCConfig struct {
@@ -62,46 +66,46 @@ type OIDCConfig struct {
 	Verifier     *oidc.IDTokenVerifier
 }
 
-func NewPasetoVault(ctx context.Context, c VaultConfig) (*PasetoVault, error) {
+func NewPasetoVault(ctx context.Context, cfg VaultConfig) (*PasetoVault, error) {
 	accessTokenParser := paseto.NewParser()
-	accessTokenParser.AddRule(paseto.ForAudience("hirevec-api"))
-	accessTokenParser.AddRule(paseto.IssuedBy("hirevec"))
+	accessTokenParser.AddRule(paseto.ForAudience(TokenAudience))
+	accessTokenParser.AddRule(paseto.IssuedBy(TokenIssuer))
 	accessTokenParser.AddRule(paseto.NotExpired())
 	accessTokenParser.AddRule(paseto.NotBeforeNbf())
 
 	refreshTokenParser := paseto.NewParser()
-	refreshTokenParser.AddRule(paseto.ForAudience("hirevec-api"))
-	refreshTokenParser.AddRule(paseto.IssuedBy("hirevec"))
+	refreshTokenParser.AddRule(paseto.ForAudience(TokenAudience))
+	refreshTokenParser.AddRule(paseto.IssuedBy(TokenIssuer))
 	refreshTokenParser.AddRule(paseto.NotExpired())
 	refreshTokenParser.AddRule(paseto.NotBeforeNbf())
 
-	symmetricKey, err := paseto.V4SymmetricKeyFromHex(c.SymmetricKeyHex)
+	symmetricKey, err := paseto.V4SymmetricKeyFromHex(cfg.SymmetricKeyHex)
 	if err != nil {
 		slog.Error(
 			"Failed to load a symmetric key",
 			"err", err,
 		)
-		return nil, ErrFailedToLoadSymmetricKey
+		return nil, ErrFailedLoadSymmetricKey
 	}
 
-	asymmetricKey, err := paseto.NewV4AsymmetricSecretKeyFromHex(c.AsymmetricKeyHex)
+	asymmetricKey, err := paseto.NewV4AsymmetricSecretKeyFromHex(cfg.AsymmetricKeyHex)
 	if err != nil {
 		slog.Error(
 			"Failed to load an asymmetric key",
 			"err", err,
-			"key", c.AsymmetricKeyHex,
+			"key", cfg.AsymmetricKeyHex,
 		)
-		return nil, ErrFailedToLoadAsymmetricKey
+		return nil, ErrFailedLoadAsymmetricKey
 	}
 
 	googleProvider, err := oidc.NewProvider(ctx, "https://accounts.google.com")
 	if err != nil {
-		return nil, ErrFailedToCreateGoogleOIDCProvider(err)
+		return nil, ErrFailedCreateGoogleOIDCProvider
 	}
 
 	appleProvider, err := oidc.NewProvider(ctx, "https://appleid.apple.com")
 	if err != nil {
-		return nil, ErrFailedToCreateAppleOIDCProvider(err)
+		return nil, ErrFailedCreateAppleOIDCProvider
 	}
 
 	return &PasetoVault{
@@ -112,24 +116,26 @@ func NewPasetoVault(ctx context.Context, c VaultConfig) (*PasetoVault, error) {
 		V4SymmetricKey:        symmetricKey,
 		GoogleOIDCConfig: OIDCConfig{
 			OAuth2Config: &oauth2.Config{
-				ClientID:     c.GoogleClientID,
-				ClientSecret: c.GoogleClientSecret,
-				RedirectURL:  fmt.Sprintf("%s:%s/oauth2/callback/google", c.Host, c.Port),
+				ClientID:     cfg.GoogleClientID,
+				ClientSecret: cfg.GoogleClientSecret,
+				RedirectURL:  fmt.Sprintf("%s:%s/oauth2/callback/google", cfg.Host, cfg.Port),
 				Scopes:       []string{oidc.ScopeOpenID, "profile", "email"},
 				Endpoint:     googleProvider.Endpoint(),
 			},
-			Verifier: googleProvider.Verifier(&oidc.Config{ClientID: c.GoogleClientID}),
+			Verifier: googleProvider.Verifier(&oidc.Config{ClientID: cfg.GoogleClientID}),
 		},
 		AppleOIDCConfig: OIDCConfig{
 			OAuth2Config: &oauth2.Config{
-				ClientID:     c.AppleClientID,
-				ClientSecret: c.AppleClientSecret,
-				RedirectURL:  fmt.Sprintf("%s/oauth2/callback/apple", c.Host),
+				ClientID:     cfg.AppleClientID,
+				ClientSecret: cfg.AppleClientSecret,
+				RedirectURL:  fmt.Sprintf("%s/oauth2/callback/apple", cfg.Host),
 				Scopes:       []string{oidc.ScopeOpenID, "name", "email"},
 				Endpoint:     appleProvider.Endpoint(),
 			},
-			Verifier: appleProvider.Verifier(&oidc.Config{ClientID: c.AppleClientID}),
+			Verifier: appleProvider.Verifier(&oidc.Config{ClientID: cfg.AppleClientID}),
 		},
+		RefreshTokenExpiration: cfg.RefreshTokenExpiration,
+		AccessTokenExpiration:  cfg.AccessTokenExpiration,
 	}, nil
 }
 
@@ -197,7 +203,7 @@ func (v PasetoVault) ExchangeGoogleCodeForIDToken(ctx context.Context, code stri
 		oauth2.VerifierOption(verifierCookie.Value),
 	)
 	if err != nil {
-		return "", ErrFailedToExchangeToken(err)
+		return "", ErrFailedExchangeToken
 	}
 
 	rawIDToken, ok := tok.Extra("id_token").(string)
@@ -215,7 +221,7 @@ func (v PasetoVault) ExchangeAppleCodeForIDToken(ctx context.Context, code strin
 		oauth2.VerifierOption(verifierCookie.Value),
 	)
 	if err != nil {
-		return "", ErrFailedToExchangeToken(err)
+		return "", ErrFailedExchangeToken
 	}
 
 	rawIDToken, ok := tok.Extra("id_token").(string)
@@ -242,7 +248,7 @@ func (v PasetoVault) VerifyAndParseGoogleIDToken(ctx context.Context, rawIDToken
 		Picture       string `json:"picture"`
 	}
 	if err := idToken.Claims(&claims); err != nil {
-		return nil, ErrFailedToParseClaims
+		return nil, ErrFailedParseClaims
 	}
 	if !claims.EmailVerified {
 		return nil, ErrEmailNotVerified
@@ -286,7 +292,7 @@ func (v PasetoVault) VerifyAndParseAppleIDToken(ctx context.Context, rawIDToken 
 		IsPrivateEmail string `json:"is_private_email"`
 	}
 	if err := idToken.Claims(&claims); err != nil {
-		return nil, ErrFailedToParseClaims
+		return nil, ErrFailedParseClaims
 	}
 
 	var firstName, lastName, fullName string
