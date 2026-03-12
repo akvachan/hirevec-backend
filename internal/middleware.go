@@ -29,6 +29,11 @@ const (
 	ContextKeyClaims     ContextKey = "claims"
 )
 
+func (rw *ResponseWriter) WriteHeader(code int) {
+	rw.status = code
+	rw.ResponseWriter.WriteHeader(code)
+}
+
 // Chain wraps handler into a sequence of middlewares, each middleware is applied in the same order it is provided.
 func Chain(handler http.HandlerFunc, middlewares ...Middleware) http.HandlerFunc {
 	wrapped := handler
@@ -36,11 +41,6 @@ func Chain(handler http.HandlerFunc, middlewares ...Middleware) http.HandlerFunc
 		wrapped = middlewares[i](wrapped)
 	}
 	return wrapped
-}
-
-func (rw *ResponseWriter) WriteHeader(code int) {
-	rw.status = code
-	rw.ResponseWriter.WriteHeader(code)
 }
 
 func ErrorHandler(next http.HandlerFunc) http.HandlerFunc {

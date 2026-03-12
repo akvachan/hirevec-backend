@@ -77,16 +77,19 @@ var stateStore = &StateStore{
 }
 
 const (
-	IssuedTokenTypeRefreshToken   IssuedTokenType = "urn:ietf:params:oauth:token-type:refresh_token"
-	IssuedTokenTypeAccessToken    IssuedTokenType = "urn:ietf:params:oauth:token-type:access_token"
-	DefaultRefreshTokenExpiration                 = 30 * 24 * time.Hour
-	DefaultAccessTokenExpiration                  = 30 * time.Minute
-	ScopeValueTypeCandidate       ScopeValueType  = "role:candidate"
-	ScopeValueTypeRecruiter       ScopeValueType  = "role:recruiter"
-	ScopeValueTypeAdmin           ScopeValueType  = "role:admin"
-	ScopeValueTypeOnboarding      ScopeValueType  = "role:onboarding"
-	TokenAudience                                 = "api.hirevec.com"
-	TokenIssuer                                   = "api.hirevec.com"
+	IssuedTokenTypeRefreshToken IssuedTokenType = "urn:ietf:params:oauth:token-type:refresh_token"
+	IssuedTokenTypeAccessToken  IssuedTokenType = "urn:ietf:params:oauth:token-type:access_token"
+
+	DefaultRefreshTokenExpiration = 30 * 24 * time.Hour
+	DefaultAccessTokenExpiration  = 30 * time.Minute
+
+	ScopeValueTypeCandidate  ScopeValueType = "role:candidate"
+	ScopeValueTypeRecruiter  ScopeValueType = "role:recruiter"
+	ScopeValueTypeAdmin      ScopeValueType = "role:admin"
+	ScopeValueTypeOnboarding ScopeValueType = "role:onboarding"
+
+	TokenAudience = "api.hirevec.com"
+	TokenIssuer   = "api.hirevec.com"
 )
 
 func ToScopeValue(str string) (ScopeValueType, error) {

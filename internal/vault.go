@@ -18,53 +18,55 @@ import (
 	"golang.org/x/oauth2"
 )
 
-type Vault interface {
-	CleanupExpiredStateTokens()
-	CreateAccessToken(userID string, provider string, scope ScopeType) (*AccessToken, error)
-	CreateAuthCodeURL(state string, verifier string, provider string) (string, error)
-	CreateRefreshToken(userID string, provider string, jti string) (*RefreshToken, error)
-	CreateStateToken() (string, error)
-	CreateTokenPair(userID string, provider string, jti string, scope ScopeType) (*TokenPair, error)
-	ExchangeAppleCodeForIDToken(ctx context.Context, code string, verifier *http.Cookie) (string, error)
-	ExchangeGoogleCodeForIDToken(ctx context.Context, code string, verifier *http.Cookie) (string, error)
-	GetPublicKey() []byte
-	GetScopeForRoles(roles []string) (ScopeType, error)
-	ParseAccessToken(token string) (*AccessTokenClaims, error)
-	ParseRefreshToken(token string) (*RefreshTokenClaims, error)
-	ValidateAndDeleteStateToken(state string) bool
-	VerifyAndParseAppleIDToken(ctx context.Context, rawIDToken string, userJSON string) (*User, error)
-	VerifyAndParseGoogleIDToken(ctx context.Context, rawIDToken string) (*User, error)
-}
+type (
+	Vault interface {
+		CleanupExpiredStateTokens()
+		CreateAccessToken(userID string, provider string, scope ScopeType) (*AccessToken, error)
+		CreateAuthCodeURL(state string, verifier string, provider string) (string, error)
+		CreateRefreshToken(userID string, provider string, jti string) (*RefreshToken, error)
+		CreateStateToken() (string, error)
+		CreateTokenPair(userID string, provider string, jti string, scope ScopeType) (*TokenPair, error)
+		ExchangeAppleCodeForIDToken(ctx context.Context, code string, verifier *http.Cookie) (string, error)
+		ExchangeGoogleCodeForIDToken(ctx context.Context, code string, verifier *http.Cookie) (string, error)
+		GetPublicKey() []byte
+		GetScopeForRoles(roles []string) (ScopeType, error)
+		ParseAccessToken(token string) (*AccessTokenClaims, error)
+		ParseRefreshToken(token string) (*RefreshTokenClaims, error)
+		ValidateAndDeleteStateToken(state string) bool
+		VerifyAndParseAppleIDToken(ctx context.Context, rawIDToken string, userJSON string) (*User, error)
+		VerifyAndParseGoogleIDToken(ctx context.Context, rawIDToken string) (*User, error)
+	}
 
-type VaultConfig struct {
-	Host                   string
-	Port                   string
-	SymmetricKeyHex        string
-	AsymmetricKeyHex       string
-	GoogleClientID         string
-	GoogleClientSecret     string
-	AppleClientID          string
-	AppleClientSecret      string
-	RefreshTokenExpiration time.Duration
-	AccessTokenExpiration  time.Duration
-}
+	VaultConfig struct {
+		Host                   string
+		Port                   string
+		SymmetricKeyHex        string
+		AsymmetricKeyHex       string
+		GoogleClientID         string
+		GoogleClientSecret     string
+		AppleClientID          string
+		AppleClientSecret      string
+		RefreshTokenExpiration time.Duration
+		AccessTokenExpiration  time.Duration
+	}
 
-type PasetoVault struct {
-	AccessTokenParser      paseto.Parser
-	RefreshTokenParser     paseto.Parser
-	V4AsymetricPublicKey   paseto.V4AsymmetricPublicKey
-	V4AsymmetricSecretKey  paseto.V4AsymmetricSecretKey
-	V4SymmetricKey         paseto.V4SymmetricKey
-	GoogleOIDCConfig       OIDCConfig
-	AppleOIDCConfig        OIDCConfig
-	RefreshTokenExpiration time.Duration
-	AccessTokenExpiration  time.Duration
-}
+	PasetoVault struct {
+		AccessTokenParser      paseto.Parser
+		RefreshTokenParser     paseto.Parser
+		V4AsymetricPublicKey   paseto.V4AsymmetricPublicKey
+		V4AsymmetricSecretKey  paseto.V4AsymmetricSecretKey
+		V4SymmetricKey         paseto.V4SymmetricKey
+		GoogleOIDCConfig       OIDCConfig
+		AppleOIDCConfig        OIDCConfig
+		RefreshTokenExpiration time.Duration
+		AccessTokenExpiration  time.Duration
+	}
 
-type OIDCConfig struct {
-	OAuth2Config *oauth2.Config
-	Verifier     *oidc.IDTokenVerifier
-}
+	OIDCConfig struct {
+		OAuth2Config *oauth2.Config
+		Verifier     *oidc.IDTokenVerifier
+	}
+)
 
 func NewPasetoVault(ctx context.Context, cfg VaultConfig) (*PasetoVault, error) {
 	accessTokenParser := paseto.NewParser()

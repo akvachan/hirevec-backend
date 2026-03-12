@@ -703,6 +703,3 @@ func GenerateUsername() (string, error) {
 
 	return username, nil
 }
-
-func linksPages() {
-}

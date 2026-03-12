@@ -4,9 +4,11 @@
 package hirevec
 
 type (
-	Provider     string
+	Provider string
+
 	ReactionType string
-	ReactorType  string
+
+	ReactorType string
 
 	// User represents a system user
 	User struct {

@@ -32,12 +32,6 @@ type (
 		Postgres *sql.DB
 	}
 
-	PagedResult[T any] struct {
-		Items   []T
-		HasPrev bool
-		HasNext bool
-	}
-
 	StoreConfig struct {
 		PostgresHost     string
 		PostgresPort     uint16
