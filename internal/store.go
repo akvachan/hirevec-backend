@@ -14,17 +14,21 @@ import (
 type (
 	Store interface {
 		CreateCandidate(Candidate) error
-		CreateMatch(Match) error
 		CreateReaction(Reaction) error
 		CreateRecommendation(positionID, candidateID string) (recID string, err error)
 		CreateRecruiter(Recruiter) error
 		CreateRefreshToken(userID string, expiresAt time.Time) (jti string, err error)
 		CreateUser(User) (userID string, err error)
 		GetCandidate(id string) (*Candidate, error)
-		GetCandidateByUserID(userID string) (Candidate, error)
+		GetCandidateByUserID(id string) (*Candidate, error)
+		GetReactionsByCandidateID(candidateID string, cursor string, limit int) ([]Reaction, string, error)
+		GetMatchesByCandidateID(candidateID string, cursor string, limit int) ([]Match, string, error)
+		GetRecruiterByUserID(id string) (*Recruiter, error)
 		GetPosition(id string) (*Position, error)
 		GetUserByProvider(provider Provider, providerUserID string) (userID string, roles []string, err error)
+		GetRecommendation(id string) (*Recommendation, error)
 		GetUserRoles(userID string, provider Provider) (roles []string, err error)
+		GetPositionRecommendations(candidateID string, cursor string, limit int) ([]PositionRecommendation, string, error)
 		ValidateActiveSession(jti string) (isSessionRevoked bool, err error)
 	}
 
@@ -78,6 +82,28 @@ func (s PostgresStore) GetCandidate(id string) (*Candidate, error) {
 	return &c, nil
 }
 
+func (s PostgresStore) GetRecommendation(id string) (*Recommendation, error) {
+	var r Recommendation
+
+	err := s.Postgres.QueryRow(
+		`
+		SELECT id, candidate_id, position_id
+		FROM v1.recommendations
+		WHERE id = $1
+		`,
+		id,
+	).Scan(
+		&r.ID,
+		&r.CandidateID,
+		&r.PositionID,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &r, nil
+}
+
 func (s PostgresStore) GetPosition(id string) (*Position, error) {
 	var p Position
 
@@ -103,7 +129,7 @@ func (s PostgresStore) GetPosition(id string) (*Position, error) {
 }
 
 // GetCandidateByUserID fetches a candidate by their associated user ID.
-func (s PostgresStore) GetCandidateByUserID(userID string) (Candidate, error) {
+func (s PostgresStore) GetCandidateByUserID(userID string) (*Candidate, error) {
 	var c Candidate
 	query := `
         SELECT id, user_id, about
@@ -115,12 +141,12 @@ func (s PostgresStore) GetCandidateByUserID(userID string) (Candidate, error) {
 	err := s.Postgres.QueryRow(query, userID).Scan(&c.ID, &c.UserID, &c.About)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return Candidate{}, ErrCandidateNotFound
+			return nil, ErrCandidateNotFound
 		}
-		return Candidate{}, err
+		return nil, err
 	}
 
-	return c, nil
+	return &c, nil
 }
 
 // GetUserByProvider retrieves an existing user and his role based on their provider details.
@@ -168,7 +194,7 @@ func (s PostgresStore) GetUserByProvider(provider Provider, providerUserID strin
 
 // GetUserRoles fetches user roles by user's ID and provider.
 func (s PostgresStore) GetUserRoles(userID string, provider Provider) (roles []string, err error) {
-	var isCandidate, isRecruiter, isAdmin bool
+	var isCandidate, isRecruiter bool
 
 	err = s.Postgres.QueryRow(
 		`
@@ -180,16 +206,13 @@ func (s PostgresStore) GetUserRoles(userID string, provider Provider) (roles []s
 				EXISTS (
 						SELECT 1 FROM v1.recruiters r WHERE r.user_id = u.id
 				) AS is_recruiter
-				EXISTS (
-						SELECT 1 FROM v1.admins r WHERE r.user_id = u.id
-				) AS is_admin
 		FROM v1.users u
 		WHERE u.user_id = $1
 			AND u.provider = $2
 		`,
 		userID,
 		provider,
-	).Scan(&isCandidate, &isRecruiter, &isAdmin)
+	).Scan(&isCandidate, &isRecruiter)
 
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("%w: userID=%s", ErrUserNotFound, userID)
@@ -203,9 +226,6 @@ func (s PostgresStore) GetUserRoles(userID string, provider Provider) (roles []s
 	}
 	if isRecruiter {
 		roles = append(roles, "recruiter")
-	}
-	if isAdmin {
-		roles = append(roles, "admin")
 	}
 
 	if len(roles) == 0 {
@@ -305,22 +325,6 @@ func (s PostgresStore) CreateRecruiter(r Recruiter) error {
 	return err
 }
 
-// CreateMatch creates a new match record between a candidate and a position when mutual interest is established.
-func (s PostgresStore) CreateMatch(m Match) error {
-	_, err := s.Postgres.Exec(
-		`
-		INSERT INTO v1.matches (
-			candidate_id,
-			position_id
-		)
-		VALUES ($1, $2)
-		`,
-		m.CandidateID,
-		m.PositionID,
-	)
-	return err
-}
-
 // ValidateActiveSession checks if the JTI exists and is not expired.
 func (s PostgresStore) ValidateActiveSession(jti string) (isSessionRevoked bool, err error) {
 	return isSessionRevoked, s.Postgres.QueryRow(
@@ -372,4 +376,134 @@ func (s PostgresStore) CreateRecommendation(positionID, candidateID string) (rec
 	}
 
 	return recID, nil
+}
+
+// GetPositionRecommendations returns paginated position recommendations for a candidate.
+// Cursor is the ID of the last seen recommendation; pass empty string for the first page.
+func (s PostgresStore) GetPositionRecommendations(candidateID string, cursor string, limit int) ([]PositionRecommendation, string, error) {
+	rows, err := s.Postgres.Query(`
+		SELECT r.id, p.id, p.title, p.company, p.description
+		FROM v1.recommendations r
+		JOIN v1.positions p ON p.id = r.position_id
+		WHERE r.candidate_id = $1
+		  AND ($2 = '' OR r.id > $2)
+		ORDER BY r.id ASC
+		LIMIT $3
+	`, candidateID, cursor, limit+1)
+	if err != nil {
+		return nil, "", err
+	}
+	defer rows.Close()
+
+	var results []PositionRecommendation
+	for rows.Next() {
+		var pr PositionRecommendation
+		if err := rows.Scan(&pr.RecommendationID, &pr.PositionID, &pr.Title, &pr.Company, &pr.Description); err != nil {
+			return nil, "", err
+		}
+		results = append(results, pr)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, "", err
+	}
+
+	var nextCursor string
+	if len(results) > limit {
+		results = results[:limit]
+		nextCursor = results[limit-1].RecommendationID
+	}
+
+	return results, nextCursor, nil
+}
+
+// GetReactionsByCandidateID returns paginated reactions made by a candidate.
+// Cursor is the ID of the last seen recommendation; pass empty string for the first page.
+func (s PostgresStore) GetReactionsByCandidateID(candidateID string, cursor string, limit int) ([]Reaction, string, error) {
+	rows, err := s.Postgres.Query(`
+		SELECT recommendation_id, reactor_type, reactor_id, reaction_type, created_at
+		FROM v1.reactions
+		WHERE reactor_id = $1
+		  AND reactor_type = 'candidate'
+		  AND ($2 = '' OR recommendation_id > $2)
+		ORDER BY recommendation_id ASC
+		LIMIT $3
+	`, candidateID, cursor, limit+1)
+	if err != nil {
+		return nil, "", err
+	}
+	defer rows.Close()
+
+	var results []Reaction
+	for rows.Next() {
+		var rx Reaction
+		if err := rows.Scan(&rx.RecommendationID, &rx.ReactorType, &rx.ReactorID, &rx.ReactionType, &rx.ReactedAt); err != nil {
+			return nil, "", err
+		}
+		results = append(results, rx)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, "", err
+	}
+
+	var nextCursor string
+	if len(results) > limit {
+		results = results[:limit]
+		nextCursor = results[limit-1].RecommendationID
+	}
+
+	return results, nextCursor, nil
+}
+
+// GetMatchesByCandidateID returns paginated matches for a candidate.
+// Cursor is the ID of the last seen position; pass empty string for the first page.
+func (s PostgresStore) GetMatchesByCandidateID(candidateID string, cursor string, limit int) ([]Match, string, error) {
+	rows, err := s.Postgres.Query(`
+		SELECT m.position_id, p.title, p.description, COALESCE(p.company, ''), m.created_at
+		FROM v1.matches m
+		JOIN v1.positions p ON p.id = m.position_id
+		WHERE m.candidate_id = $1
+		  AND ($2 = '' OR m.position_id > $2)
+		ORDER BY m.position_id ASC
+		LIMIT $3
+	`, candidateID, cursor, limit+1)
+	if err != nil {
+		return nil, "", err
+	}
+	defer rows.Close()
+
+	var results []Match
+	for rows.Next() {
+		var m Match
+		if err := rows.Scan(&m.PositionID, &m.Title, &m.Description, &m.Company, &m.MatchedAt); err != nil {
+			return nil, "", err
+		}
+		results = append(results, m)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, "", err
+	}
+
+	var nextCursor string
+	if len(results) > limit {
+		results = results[:limit]
+		nextCursor = results[limit-1].PositionID
+	}
+
+	return results, nextCursor, nil
+}
+
+// GetRecruiterByUserID fetches a recruiter by their associated user ID.
+func (s PostgresStore) GetRecruiterByUserID(userID string) (*Recruiter, error) {
+	var rec Recruiter
+	err := s.Postgres.QueryRow(
+		`SELECT id, user_id FROM v1.recruiters WHERE user_id = $1 LIMIT 1`,
+		userID,
+	).Scan(&rec.ID, &rec.UserID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrRecruiterNotFound
+		}
+		return nil, err
+	}
+	return &rec, nil
 }

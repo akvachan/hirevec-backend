@@ -5,12 +5,10 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
-	"slices"
 	"syscall"
 	"time"
 
@@ -45,70 +43,7 @@ func main() {
 		die("failed to create a new store", "err", err)
 	}
 
-	userID, roles, err := store.GetUserByProvider(hirevec.ProviderGoogle, "admin")
-	switch {
-	case errors.Is(err, hirevec.ErrUserNotFound):
-		slog.Info("provisioning an admin")
-
-		admin := hirevec.User{
-			Provider:       hirevec.ProviderGoogle,
-			ProviderUserID: "admin",
-			Email:          "admin@admin.com",
-			FullName:       "admin",
-			UserName:       "admin",
-		}
-
-		userID, err = store.CreateUser(admin)
-		if err != nil {
-			die("failed to create an admin", "err", err)
-		}
-
-		store.CreateCandidate(hirevec.Candidate{
-			UserID: userID,
-			About:  "Admin Candidate",
-		})
-
-		store.CreateRecruiter(hirevec.Recruiter{
-			UserID: userID,
-		})
-
-	case errors.Is(err, hirevec.ErrUserNoRole):
-		slog.Info("admin does not have a role, creating candidate and recruiter for the admin", "userID", userID)
-
-		if err := store.CreateCandidate(hirevec.Candidate{
-			UserID: userID,
-			About:  "Admin Candidate",
-		}); err != nil {
-			die("failed to create a candidate for the admin", "userID", userID, "err", err)
-		}
-
-		if err := store.CreateRecruiter(hirevec.Recruiter{
-			UserID: userID,
-		}); err != nil {
-			die("failed to create a recruiter for the admin", "userID", userID, "err", err)
-		}
-
-	case !slices.Contains(roles, "recruiter"):
-		slog.Info("admin does not have a recruiter role, creating recruiter for the admin", "userID", userID)
-		if err := store.CreateRecruiter(hirevec.Recruiter{
-			UserID: userID,
-		}); err != nil {
-			die("failed to create a recruiter for the admin", "userID", userID, "err", err)
-		}
-
-	case !slices.Contains(roles, "candidate"):
-		slog.Info("admin does not have a candidate role, creating candidate for the admin", "userID", userID)
-		if err := store.CreateCandidate(hirevec.Candidate{
-			UserID: userID,
-			About:  "Admin Candidate",
-		}); err != nil {
-			die("failed to create a candidate for the admin", "userID", userID, "err", err)
-		}
-
-	case err != nil:
-		die("failed to get an admin", "err", err)
-
-	}
+	userID, _, err := store.GetUserByProvider(hirevec.ProviderGoogle, "google-test-001")
 
 	vaultCfg := hirevec.VaultConfig{
 		SymmetricKeyHex:       os.Getenv("SYMMETRIC_KEY"),
@@ -120,7 +55,10 @@ func main() {
 		die("failed to create a new vault", "err", err)
 	}
 
-	token, err := vault.CreateAccessToken(userID, hirevec.ProviderGoogle.Raw(), hirevec.ScopeType{hirevec.ScopeValueTypeAdmin})
+	token, err := vault.CreateAccessToken(userID, hirevec.ProviderGoogle.Raw(), hirevec.ScopeType{
+		hirevec.ScopeValueTypeCandidate,
+		hirevec.ScopeValueTypeRecruiter,
+	})
 	if err != nil {
 		die("failed to create a refresh token", "err", err)
 	}

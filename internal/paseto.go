@@ -85,7 +85,6 @@ const (
 
 	ScopeValueTypeCandidate  ScopeValueType = "role:candidate"
 	ScopeValueTypeRecruiter  ScopeValueType = "role:recruiter"
-	ScopeValueTypeAdmin      ScopeValueType = "role:admin"
 	ScopeValueTypeOnboarding ScopeValueType = "role:onboarding"
 
 	TokenAudience = "api.hirevec.com"
@@ -98,8 +97,6 @@ func ToScopeValue(str string) (ScopeValueType, error) {
 		return ScopeValueTypeCandidate, nil
 	case "role:recruiter":
 		return ScopeValueTypeRecruiter, nil
-	case "role:admin":
-		return ScopeValueTypeAdmin, nil
 	case "role:onboarding":
 		return ScopeValueTypeOnboarding, nil
 	default:
@@ -307,7 +304,7 @@ func (v PasetoVault) GetScopeForRoles(roles []string) (ScopeType, error) {
 
 	for _, r := range roles {
 		switch r {
-		case "candidate", "recruiter", "admin":
+		case "candidate", "recruiter":
 			scopeValue, err := ToScopeValue("role:" + r)
 			if err != nil {
 				return scope, ErrInvalidScopeValueType

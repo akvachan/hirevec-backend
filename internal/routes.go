@@ -31,16 +31,15 @@ const (
 	MethodGet  Method = http.MethodGet
 	MethodPost Method = http.MethodPost
 
-	RouteHealth          = "/v1/health"
-	RoutePublicKeys      = "/v1/auth/keys"
-	RouteToken           = "/v1/auth/token"
-	RouteLogin           = "/v1/auth/login/{provider}"
-	RouteCallback        = "/v1/auth/callback/{provider}"
-	RoutePositions       = "/v1/positions"
-	RoutePosition        = "/v1/positions/{id}"
-	RouteCandidates      = "/v1/candidates"
-	RouteCandidate       = "/v1/candidates/{id}"
-	RouteRecommendations = "/v1/me/recommendations"
+	RouteHealth               = "/v1/health"
+	RoutePublicKeys           = "/v1/auth/keys"
+	RouteToken                = "/v1/auth/token"
+	RouteLogin                = "/v1/auth/login/{provider}"
+	RouteCallback             = "/v1/auth/callback/{provider}"
+	RouteGetMyRecommendations = "/v1/me/recommendations"
+	RouteGetMyReactions       = "/v1/me/reactions"
+	RouteGetMyMatches         = "/v1/me/matches"
+	RouteCreateMyReaction     = "/v1/me/recommendations/{id}/reaction"
 )
 
 func routeKey(method Method, route string) string {
@@ -131,6 +130,46 @@ func GetRootMux(s Store, v Vault) http.Handler {
 		Method:  MethodPost,
 		Route:   RouteCallback,
 		Handler: RedirectProvider(s, v),
+	})
+
+	ProtectedRoute(s, v, ProtectedRouteConfig{
+		Mux:     mux,
+		Method:  MethodGet,
+		Route:   RouteGetMyRecommendations,
+		Handler: GetMyRecommendations(s),
+		RequiredScopes: []ScopeValueType{
+			ScopeValueTypeCandidate, ScopeValueTypeRecruiter,
+		},
+	})
+
+	ProtectedRoute(s, v, ProtectedRouteConfig{
+		Mux:     mux,
+		Method:  MethodGet,
+		Route:   RouteGetMyReactions,
+		Handler: GetMyReactions(s),
+		RequiredScopes: []ScopeValueType{
+			ScopeValueTypeCandidate, ScopeValueTypeRecruiter,
+		},
+	})
+
+	ProtectedRoute(s, v, ProtectedRouteConfig{
+		Mux:     mux,
+		Method:  MethodGet,
+		Route:   RouteGetMyMatches,
+		Handler: GetMyMatches(s),
+		RequiredScopes: []ScopeValueType{
+			ScopeValueTypeCandidate, ScopeValueTypeRecruiter,
+		},
+	})
+
+	ProtectedRoute(s, v, ProtectedRouteConfig{
+		Mux:     mux,
+		Method:  MethodGet,
+		Route:   RouteCreateMyReaction,
+		Handler: CreateMyReaction(s),
+		RequiredScopes: []ScopeValueType{
+			ScopeValueTypeCandidate, ScopeValueTypeRecruiter,
+		},
 	})
 
 	return mux

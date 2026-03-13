@@ -7,6 +7,7 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -68,6 +69,17 @@ func GetClaims(r *http.Request) (*AccessTokenClaims, bool) {
 	return claims, ok
 }
 
+func GetPagination(r *http.Request) Page {
+	cursor := r.URL.Query().Get("cursor")
+	limit := DefaultPageSizeLimit
+	if l := r.URL.Query().Get("limit"); l != "" {
+		if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 {
+			limit = min(parsed, PageSizeMaxLimit)
+		}
+	}
+	return Page{Cursor: cursor, Limit: limit}
+}
+
 func Authentication(v Vault, allowedScopes []ScopeValueType) Middleware {
 	return func(next http.HandlerFunc) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
@@ -96,7 +108,7 @@ func Authentication(v Vault, allowedScopes []ScopeValueType) Middleware {
 
 			for _, s := range claims.Scope {
 				if _, ok := allowed[s]; !ok {
-					AuthError(w, AuthInvalidGrant, "permission denied")
+					AuthError(w, AuthInvalidGrant, "unauthorized")
 					return
 				}
 			}

@@ -118,7 +118,8 @@ func PublicKeys(v Vault) http.HandlerFunc {
 				Key:     publicKey,
 			},
 		}
-		Success(w, http.StatusOK, PublicPasetoKeys{Keys: keys}, nil)
+
+		WriteJSON(w, http.StatusOK, PublicPasetoKeys{Keys: keys})
 	}
 }
 

@@ -33,7 +33,6 @@ Server uses scope-based authorization:
 
 - `role:recruiter`: Recruiter role
 - `role:candidate`: Candidate role
-- `role:admin`: Can use general endpoints
 - `role:onboarding`: Can write to the candidates table once and can write to the recruiters table once
 
 Authentication and authorization are handled by middleware, so all protected endpoints will require a valid access token with the appropriate scopes.

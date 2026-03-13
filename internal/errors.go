@@ -60,4 +60,6 @@ var (
 	ErrInvalidScopeValueType          = errors.New("invalid scope value type provided")
 	ErrRecommendationExists           = errors.New("recommendation already exists")
 	ErrCandidateNotFound              = errors.New("candidate not found")
+	ErrRecruiterNotFound              = errors.New("recruiter not found")
+	ErrReactionAlreadyExists          = errors.New("reaction for this recommendation already exists")
 )

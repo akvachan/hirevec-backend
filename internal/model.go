@@ -3,6 +3,8 @@
 
 package hirevec
 
+import "time"
+
 type (
 	Provider string
 
@@ -33,6 +35,12 @@ type (
 		UserID string `json:"user_id"`
 	}
 
+	Recommendation struct {
+		ID          string `json:"id"`
+		PositionID  string `json:"position_id"`
+		CandidateID string `json:"candidate_id"`
+	}
+
 	// Position represents a job position
 	Position struct {
 		ID          string `json:"id"`
@@ -42,10 +50,12 @@ type (
 		Company     string `json:"company"`
 	}
 
-	// Match links a candidate to a position
 	Match struct {
-		CandidateID string `json:"candidate_id"`
-		PositionID  string `json:"position_id"`
+		PositionID  string    `json:"position_id"`
+		Title       string    `json:"title"`
+		Description string    `json:"description"`
+		Company     string    `json:"company"`
+		MatchedAt   time.Time `json:"matched_at"`
 	}
 
 	// Reaction represents either a candidate or recruiter reaction to a recommendation
@@ -54,6 +64,30 @@ type (
 		ReactorType      ReactorType  `json:"reactor_type"`
 		ReactorID        string       `json:"reactor_id"`
 		ReactionType     ReactionType `json:"reaction_type"`
+		ReactedAt        time.Time    `json:"reacted_at"`
+	}
+
+	Page struct {
+		Cursor  string `json:"cursor,omitempty"`
+		Limit   int    `json:"limit"`
+		Count   int    `json:"count"`
+		HasNext bool   `json:"has_next"`
+	}
+
+	PositionRecommendation struct {
+		RecommendationID string `json:"recommendation_id"`
+		PositionID       string `json:"position_id"`
+		Title            string `json:"title"`
+		Company          string `json:"company"`
+		Description      string `json:"description"`
+	}
+
+	CandidateRecommendation struct {
+		RecommendationID string `json:"recommendation_id"`
+		CandidateID      string `json:"candidate_id"`
+		UserName         string `json:"username"`
+		FullName         string `json:"full_name,omitempty"`
+		About            string `json:"about"`
 	}
 )
 
