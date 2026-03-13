@@ -197,9 +197,7 @@ func GenerateUsername() (string, error) {
 }
 
 func Health(w http.ResponseWriter, r *http.Request) {
-	Success(w, http.StatusOK, Resource{
-		Links: Links{RelTypeSelf: Link{Href: "/v1/health"}},
-	})
+	WriteJSON(w, http.StatusOK, map[string]string{"status": "success"})
 }
 
 // Returns position recommendations for the authenticated candidate.
