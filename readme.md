@@ -23,7 +23,6 @@ We support bare metal setup (downloading postgres and other dependencies is on y
 ```bash
 go run cmd/setup/main.go
 ```
-```
 3. Run Go server:
 ```
 go run cmd/server/main.go
@@ -54,7 +53,7 @@ docker compose up
 
 ## API Usage (Client)
 
-1. Generate access token:
+1. Generate access token (token gives access to a test user with some data binded to it already):
 ```
 go run cmd/token/main.go
 ```
