@@ -11,19 +11,12 @@ import (
 type (
 	Method string
 
-	PublicRouteConfig struct {
-		Mux     *http.ServeMux
-		Method  Method
-		Route   string
-		Handler http.HandlerFunc
-	}
-
-	ProtectedRouteConfig struct {
+	RouteConfig struct {
 		Mux            *http.ServeMux
 		Method         Method
 		Route          string
 		Handler        http.HandlerFunc
-		RequiredScopes []ScopeValueType
+		RequiredScopes []ScopeValueType // required for protected routes
 	}
 )
 
@@ -31,7 +24,8 @@ const (
 	MethodGet  Method = http.MethodGet
 	MethodPost Method = http.MethodPost
 
-	RouteHealth               = "/v1/health"
+	RouteOpenAPI              = "/openapi.yaml"
+	RouteHealth               = "/health"
 	RoutePublicKeys           = "/v1/auth/keys"
 	RouteToken                = "/v1/auth/token"
 	RouteLogin                = "/v1/auth/login/{provider}"
@@ -50,12 +44,12 @@ func baseMiddleware(handler http.HandlerFunc) http.Handler {
 	return Chain(
 		handler,
 		Logger,
-		ErrorHandler,
+		PanicHandler,
 		MaxBytesLimiter,
 	)
 }
 
-func PublicRoute(s Store, v Vault, cfg PublicRouteConfig) {
+func PublicRoute(s Store, v Vault, cfg RouteConfig) {
 	handler := baseMiddleware(cfg.Handler)
 
 	cfg.Mux.Handle(
@@ -64,11 +58,11 @@ func PublicRoute(s Store, v Vault, cfg PublicRouteConfig) {
 	)
 }
 
-func ProtectedRoute(s Store, v Vault, cfg ProtectedRouteConfig) {
+func ProtectedRoute(s Store, v Vault, cfg RouteConfig) {
 	handler := Chain(
 		cfg.Handler,
 		Logger,
-		ErrorHandler,
+		PanicHandler,
 		MaxBytesLimiter,
 		Authentication(v, cfg.RequiredScopes),
 	)
@@ -83,56 +77,62 @@ func GetRootMux(s Store, v Vault) http.Handler {
 	mux := http.NewServeMux()
 
 	// Public routes
-	PublicRoute(s, v, PublicRouteConfig{
+	PublicRoute(s, v, RouteConfig{
+		Mux:     mux,
+		Method:  MethodGet,
+		Route:   RouteOpenAPI,
+		Handler: OpenAPI,
+	})
+	PublicRoute(s, v, RouteConfig{
 		Mux:     mux,
 		Method:  MethodGet,
 		Route:   RouteHealth,
 		Handler: Health,
 	})
 
-	PublicRoute(s, v, PublicRouteConfig{
+	PublicRoute(s, v, RouteConfig{
 		Mux:     mux,
 		Method:  MethodGet,
 		Route:   RoutePublicKeys,
 		Handler: PublicKeys(v),
 	})
 
-	PublicRoute(s, v, PublicRouteConfig{
+	PublicRoute(s, v, RouteConfig{
 		Mux:     mux,
 		Method:  MethodPost,
 		Route:   RouteToken,
 		Handler: CreateAccessToken(s, v),
 	})
 
-	PublicRoute(s, v, PublicRouteConfig{
+	PublicRoute(s, v, RouteConfig{
 		Mux:     mux,
 		Method:  MethodGet,
 		Route:   RouteLogin,
 		Handler: Login(v),
 	})
 
-	PublicRoute(s, v, PublicRouteConfig{
+	PublicRoute(s, v, RouteConfig{
 		Mux:     mux,
 		Method:  MethodPost,
 		Route:   RouteLogin,
 		Handler: Login(v),
 	})
 
-	PublicRoute(s, v, PublicRouteConfig{
+	PublicRoute(s, v, RouteConfig{
 		Mux:     mux,
 		Method:  MethodGet,
 		Route:   RouteCallback,
 		Handler: RedirectProvider(s, v),
 	})
 
-	PublicRoute(s, v, PublicRouteConfig{
+	PublicRoute(s, v, RouteConfig{
 		Mux:     mux,
 		Method:  MethodPost,
 		Route:   RouteCallback,
 		Handler: RedirectProvider(s, v),
 	})
 
-	ProtectedRoute(s, v, ProtectedRouteConfig{
+	ProtectedRoute(s, v, RouteConfig{
 		Mux:     mux,
 		Method:  MethodGet,
 		Route:   RouteGetMyRecommendations,
@@ -142,7 +142,7 @@ func GetRootMux(s Store, v Vault) http.Handler {
 		},
 	})
 
-	ProtectedRoute(s, v, ProtectedRouteConfig{
+	ProtectedRoute(s, v, RouteConfig{
 		Mux:     mux,
 		Method:  MethodGet,
 		Route:   RouteGetMyReactions,
@@ -152,7 +152,7 @@ func GetRootMux(s Store, v Vault) http.Handler {
 		},
 	})
 
-	ProtectedRoute(s, v, ProtectedRouteConfig{
+	ProtectedRoute(s, v, RouteConfig{
 		Mux:     mux,
 		Method:  MethodGet,
 		Route:   RouteGetMyMatches,
@@ -162,9 +162,9 @@ func GetRootMux(s Store, v Vault) http.Handler {
 		},
 	})
 
-	ProtectedRoute(s, v, ProtectedRouteConfig{
+	ProtectedRoute(s, v, RouteConfig{
 		Mux:     mux,
-		Method:  MethodGet,
+		Method:  MethodPost,
 		Route:   RouteCreateMyReaction,
 		Handler: CreateMyReaction(s),
 		RequiredScopes: []ScopeValueType{

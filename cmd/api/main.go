@@ -4,77 +4,119 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/akvachan/hirevec-backend/cmd/common"
 )
 
+var log = slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))
+
 func main() {
 	if err := common.Loadenv(".env"); err != nil {
-		slog.Warn("failed to load .env, using system environment", "err", err)
+		log.Warn("failed to load .env, using system environment", "err", err)
 	}
 
 	if len(os.Args) < 2 {
-		fmt.Println("usage: go run main.go <path>")
-		fmt.Println("example: go run main.go /v1/positions?limit=1")
+		fmt.Println("usage: go run main.go <path> [method] [json-body]")
+		fmt.Println("examples:")
+		fmt.Println("  go run main.go v1/positions?limit=1")
+		fmt.Println("  go run main.go v1/positions POST '{\"title\":\"Engineer\"}'")
+		fmt.Println("  go run main.go v1/positions/123 PATCH '{\"title\":\"Senior Engineer\"}'")
+		fmt.Println("  go run main.go v1/positions/123 DELETE")
 		os.Exit(1)
 	}
 
 	path := os.Args[1]
+	path, _ = strings.CutPrefix(path, "/")
+
+	method := "GET"
+	if len(os.Args) >= 3 {
+		method = strings.ToUpper(os.Args[2])
+	}
+
+	validMethods := map[string]bool{"GET": true, "POST": true, "PATCH": true, "DELETE": true, "PUT": true}
+	if !validMethods[method] {
+		log.Error("unsupported HTTP method", "method", method)
+		os.Exit(1)
+	}
+
+	var bodyReader *bytes.Reader
+	if len(os.Args) >= 4 {
+		rawBody := os.Args[3]
+		var jsonCheck any
+		if err := json.Unmarshal([]byte(rawBody), &jsonCheck); err != nil {
+			log.Error("invalid JSON body", "err", err)
+			os.Exit(1)
+		}
+		bodyReader = bytes.NewReader([]byte(rawBody))
+	} else {
+		bodyReader = bytes.NewReader(nil)
+	}
 
 	protocol := common.Getenv("PROTOCOL", "http")
 	host := common.Getenv("HOST", "localhost")
 	port := common.Getenv("PORT", "8080")
-
-	url := fmt.Sprintf("%s://%s:%s%s", protocol, host, port, path)
+	url := fmt.Sprintf("%s://%s:%s/%s", protocol, host, port, path)
 
 	bearerToken := os.Getenv("ACCESS_TOKEN")
 	if bearerToken == "" {
-		slog.Error("access token is not set")
+		log.Error("access token is not set")
 		os.Exit(1)
 	}
 
-	req, err := http.NewRequest("GET", url, nil)
+	req, err := http.NewRequest(method, url, bodyReader)
 	if err != nil {
-		slog.Error("failed to create request", "url", url, "err", err)
+		log.Error("failed to create request", "url", url, "method", method, "err", err)
 		os.Exit(1)
 	}
 
 	req.Header.Add("Authorization", "Bearer "+bearerToken)
 	req.Header.Set("Accept", "application/json")
-
-	client := &http.Client{
-		Timeout: 10 * time.Second,
+	if bodyReader.Size() > 0 {
+		req.Header.Set("Content-Type", "application/json")
 	}
 
+	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		slog.Error("failed to get url", "url", url, "err", err)
+		log.Error("failed to send request", "url", url, "err", err)
 		os.Exit(1)
 	}
 	defer resp.Body.Close()
 
-	var data any
-	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
-		slog.Error("failed to decode json", "err", err)
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		log.Error("failed to read response body", "err", err)
 		os.Exit(1)
+	}
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		log.Error("unexpected status code", "status", resp.StatusCode)
+	}
+
+	if len(body) == 0 {
+		fmt.Println("(empty response body)")
+		return
+	}
+
+	var data any
+	if err := json.Unmarshal(body, &data); err != nil {
+		fmt.Println(string(body))
+		return
 	}
 
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)
 	enc.SetIndent("", "  ")
 	enc.SetEscapeHTML(false)
-
 	if err := enc.Encode(data); err != nil {
-		slog.Error("failed to encode json", "err", err)
+		log.Error("failed to encode json", "err", err)
 		os.Exit(1)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		slog.Error("unexpected status code", "status", resp.StatusCode)
 	}
 
 	fmt.Println(buf.String())

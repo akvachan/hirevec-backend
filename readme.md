@@ -60,5 +60,5 @@ go run cmd/token/main.go
 2. Set `ACCESS_TOKEN` either in shell environment variables or `.env`.
 3. Call the script by providing the path, e.g.:
 ```
-go run cmd/api/main.go "/v1/positions?limit=10"
+go run cmd/api/main.go "/v1/me/recommendations"
 ```

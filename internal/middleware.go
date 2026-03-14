@@ -44,7 +44,7 @@ func Chain(handler http.HandlerFunc, middlewares ...Middleware) http.HandlerFunc
 	return wrapped
 }
 
-func ErrorHandler(next http.HandlerFunc) http.HandlerFunc {
+func PanicHandler(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		defer func() {
 			if err := recover(); err != nil {
@@ -70,14 +70,32 @@ func GetClaims(r *http.Request) (*AccessTokenClaims, bool) {
 }
 
 func GetPagination(r *http.Request) Page {
-	cursor := r.URL.Query().Get("cursor")
-	limit := DefaultPageSizeLimit
+	p := Page{
+		Cursor: r.URL.Query().Get("cursor"),
+		Limit:  DefaultPageSizeLimit,
+	}
 	if l := r.URL.Query().Get("limit"); l != "" {
 		if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 {
-			limit = min(parsed, PageSizeMaxLimit)
+			p.Limit = min(parsed, PageSizeMaxLimit)
 		}
 	}
-	return Page{Cursor: cursor, Limit: limit}
+	return p
+}
+
+func GetRecommendationsQueryParams(r *http.Request) (RecommendationsQueryParams, error) {
+	hideReacted := r.URL.Query().Get("hide_reacted")
+	var params RecommendationsQueryParams
+	switch hideReacted {
+	case "true":
+		params.HideReacted = true
+	case "false":
+		params.HideReacted = false
+	case "":
+		params.HideReacted = false
+	default:
+		return params, ErrInvalidHideReactedParamValue
+	}
+	return params, nil
 }
 
 func Authentication(v Vault, allowedScopes []ScopeValueType) Middleware {

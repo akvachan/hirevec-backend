@@ -61,5 +61,7 @@ var (
 	ErrRecommendationExists           = errors.New("recommendation already exists")
 	ErrCandidateNotFound              = errors.New("candidate not found")
 	ErrRecruiterNotFound              = errors.New("recruiter not found")
-	ErrReactionAlreadyExists          = errors.New("reaction for this recommendation already exists")
+	ErrFailedCloseRequestBody         = errors.New("failed to close request body")
+	ErrReactionAlreadyExists          = errors.New("reaction already exists")
+	ErrInvalidHideReactedParamValue   = errors.New("invalid value for hide_reacted query parameter")
 )

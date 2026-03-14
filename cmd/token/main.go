@@ -63,6 +63,10 @@ func main() {
 		die("failed to create a refresh token", "err", err)
 	}
 
+	if err := os.Setenv("ACCESS_TOKEN", token.AccessToken); err != nil {
+		die("failed to set ACCESS_TOKEN environment variable")
+	}
+
 	fmt.Printf("\n%s\n", token.AccessToken)
 }
 

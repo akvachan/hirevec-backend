@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"path"
 	"strings"
 )
 
@@ -37,12 +38,13 @@ type (
 
 	Links    map[RelType]Link
 	Embedded map[string]any
+	Props    map[string]any
 
 	// Resource is a flat HAL Resource Object. _links, _embedded, and all
 	Resource struct {
-		Links    Links          `json:"_links,omitempty"`
-		Embedded Embedded       `json:"_embedded,omitempty"`
-		Props    map[string]any `json:"-"`
+		Links    Links    `json:"_links,omitempty"`
+		Embedded Embedded `json:"_embedded,omitempty"`
+		Props    Props    `json:"-"`
 	}
 
 	ErrorResponse struct {
@@ -55,6 +57,10 @@ type (
 		Status ResponseStatus `json:"status"`
 		Data   FailData       `json:"data,omitempty"`
 		Links  Links          `json:"_links,omitempty"`
+	}
+
+	RecommendationsQueryParams struct {
+		HideReacted bool `json:"hide_reacted"`
 	}
 )
 
@@ -134,6 +140,7 @@ func SetDefaultHeaders(w http.ResponseWriter) {
 
 func Success(w http.ResponseWriter, status int, res Resource) {
 	SetDefaultHeaders(w)
+	res.Props["status"] = "success"
 	WriteJSON(w, status, res)
 }
 
@@ -158,17 +165,26 @@ func Fail(w http.ResponseWriter, status int, data FailData) {
 	WriteJSON(w, status, FailResponse{Status: ResponseStatusFail, Data: data})
 }
 
-func DecodeRequestBody[T any](r *http.Request) (data *T, err error) {
+func DecodeRequestBody[T any](r *http.Request) (*T, error) {
+	var data T
+
 	dec := json.NewDecoder(r.Body)
 	dec.DisallowUnknownFields()
-	err = dec.Decode(data)
-	if err != nil {
+
+	if err := dec.Decode(&data); err != nil {
+		slog.Debug(err.Error())
 		return nil, ErrFailedDecode
 	}
 	if dec.More() {
 		return nil, ErrExtraDataDecoded
 	}
-	return data, err
+
+	if err := r.Body.Close(); err != nil {
+		slog.Debug(err.Error())
+		return nil, ErrFailedCloseRequestBody
+	}
+
+	return &data, nil
 }
 
 // GenerateUsername creates username with a cryptographically random suffix
@@ -196,8 +212,13 @@ func GenerateUsername() (string, error) {
 	return username, nil
 }
 
+func OpenAPI(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/yaml")
+	http.ServeFile(w, r, path.Join("docs", "openapi.yaml"))
+}
+
 func Health(w http.ResponseWriter, r *http.Request) {
-	WriteJSON(w, http.StatusOK, map[string]string{"status": "success"})
+	Success(w, http.StatusOK, Resource{Props: Props{}})
 }
 
 // Returns position recommendations for the authenticated candidate.
@@ -215,19 +236,26 @@ func GetMyRecommendations(s Store) http.HandlerFunc {
 				Error(w, http.StatusNotFound, "candidate profile not found")
 				return
 			}
+			slog.Error("failed to fetch candidate profile", "err", err)
 			Error(w, http.StatusInternalServerError, "failed to fetch candidate profile")
 			return
 		}
 
 		page := GetPagination(r)
+		params, err := GetRecommendationsQueryParams(r)
+		if errors.Is(err, ErrInvalidHideReactedParamValue) {
+			Fail(w, http.StatusBadRequest, FailData{"hide_reacted": "must be one of: false, true"})
+			return
+		}
 
-		recommendations, nextCursor, err := s.GetPositionRecommendations(candidate.ID, page.Cursor, page.Limit)
+		posRcm, nextCursor, err := s.GetPositionRecommendations(candidate.ID, page, params)
 		if err != nil {
+			slog.Error("failed to fetch recommendations", "err", err)
 			Error(w, http.StatusInternalServerError, "failed to fetch recommendations")
 			return
 		}
 
-		page.Count = len(recommendations)
+		page.Count = len(posRcm)
 		page.HasNext = nextCursor != ""
 
 		links := Links{
@@ -238,14 +266,14 @@ func GetMyRecommendations(s Store) http.HandlerFunc {
 			links[RelTypeNext] = Link{Href: fmt.Sprintf("/v1/me/recommendations?cursor=%s&limit=%d", nextCursor, page.Limit)}
 		}
 
-		positions := make([]Resource, len(recommendations))
-		for i, rec := range recommendations {
+		positions := make([]Resource, len(posRcm))
+		for i, rec := range posRcm {
 			positions[i] = Resource{
 				Links: Links{
-					RelTypeSelf:      Link{Href: "/v1/me/recommendations/" + rec.RecommendationID},
-					RelType("react"): Link{Href: "/v1/me/recommendations/" + rec.RecommendationID + "/reaction"},
+					RelTypeSelf:         Link{Href: "/v1/me/recommendations/" + rec.RecommendationID},
+					RelType("reaction"): Link{Href: "/v1/me/recommendations/" + rec.RecommendationID + "/reaction"},
 				},
-				Props: map[string]any{
+				Props: Props{
 					"recommendation_id": rec.RecommendationID,
 					"position_id":       rec.PositionID,
 					"title":             rec.Title,
@@ -255,16 +283,25 @@ func GetMyRecommendations(s Store) http.HandlerFunc {
 			}
 		}
 
+		embedded := Embedded{}
+		if len(posRcm) > 0 {
+			embedded = Embedded{"positions": positions}
+		}
+
 		Success(w, http.StatusOK, Resource{
 			Links:    links,
-			Embedded: Embedded{"positions": positions},
-			Props:    map[string]any{"page": page},
+			Embedded: embedded,
+			Props:    Props{"page": page},
 		})
 	}
 }
 
 // Records a candidate's reaction to a position recommendation.
 func CreateMyReaction(s Store) http.HandlerFunc {
+	type RequestBody struct {
+		ReactionType ReactionType `json:"reaction_type"`
+	}
+
 	return func(w http.ResponseWriter, r *http.Request) {
 		userID, ok := GetUserID(r)
 		if !ok {
@@ -278,6 +315,7 @@ func CreateMyReaction(s Store) http.HandlerFunc {
 				Error(w, http.StatusNotFound, "candidate profile not found")
 				return
 			}
+			slog.Error("failed to fetch candidate profile", "err", err)
 			Error(w, http.StatusInternalServerError, "failed to fetch candidate profile")
 			return
 		}
@@ -291,39 +329,39 @@ func CreateMyReaction(s Store) http.HandlerFunc {
 		rec, err := s.GetRecommendation(recommendationID)
 		if err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
-				Error(w, http.StatusNotFound, "recommendation not found")
+				Fail(w, http.StatusNotFound, FailData{"id": "recommendation not found"})
 				return
 			}
+			slog.Error("failed to fetch recommendation", "err", err)
 			Error(w, http.StatusInternalServerError, "failed to fetch recommendation")
 			return
 		}
-
-		// If recommendation is for a different candidate, send StatusForbidden.
 		if rec.CandidateID != candidate.ID {
-			Error(w, http.StatusForbidden, "forbidden")
+			Fail(w, http.StatusForbidden, FailData{"id": "forbidden for this id"})
 			return
 		}
 
-		body, err := DecodeRequestBody[struct {
-			Reaction ReactionType `json:"reaction"`
-		}](r)
+		body, err := DecodeRequestBody[RequestBody](r)
 		if err != nil {
 			Fail(w, http.StatusBadRequest, FailData{"body": "invalid request body"})
 			return
 		}
-
-		if !body.Reaction.IsValid() {
-			Fail(w, http.StatusBadRequest, FailData{"reaction": "must be one of: positive, negative, neutral"})
+		if !body.ReactionType.IsValid() {
+			Fail(w, http.StatusBadRequest, FailData{"reaction_type": "must be one of: positive, negative, neutral"})
 			return
 		}
 
-		reaction := Reaction{
+		if err := s.CreateReaction(Reaction{
 			RecommendationID: recommendationID,
 			ReactorType:      ReactorTypeCandidate,
 			ReactorID:        candidate.ID,
-			ReactionType:     body.Reaction,
-		}
-		if err := s.CreateReaction(reaction); err != nil {
+			ReactionType:     body.ReactionType,
+		}); err != nil {
+			if errors.Is(err, ErrReactionAlreadyExists) {
+				Fail(w, http.StatusConflict, FailData{"request": "reaction already exists; reactions are immutable"})
+				return
+			}
+			slog.Error("failed to record reaction", "err", err)
 			Error(w, http.StatusInternalServerError, "failed to record reaction")
 			return
 		}
@@ -335,12 +373,8 @@ func CreateMyReaction(s Store) http.HandlerFunc {
 				RelType("reactions"): Link{Href: "/v1/me/reactions"},
 				RelType("matches"):   Link{Href: "/v1/me/matches"},
 			},
-			Props: map[string]any{
-				"recommendation_id": reaction.RecommendationID,
-				"reactor_type":      reaction.ReactorType,
-				"reactor_id":        reaction.ReactorID,
-				"reaction_type":     reaction.ReactionType,
-				"reacted_at":        reaction.ReactedAt,
+			Props: Props{
+				"status": "success",
 			},
 		})
 	}
@@ -361,14 +395,16 @@ func GetMyReactions(s Store) http.HandlerFunc {
 				Error(w, http.StatusNotFound, "candidate profile not found")
 				return
 			}
+			slog.Error("failed to fetch candidate profile", "err", err)
 			Error(w, http.StatusInternalServerError, "failed to fetch candidate profile")
 			return
 		}
 
 		page := GetPagination(r)
 
-		reactions, nextCursor, err := s.GetReactionsByCandidateID(candidate.ID, page.Cursor, page.Limit)
+		reactions, nextCursor, err := s.GetReactionsByCandidateID(candidate.ID, page)
 		if err != nil {
+			slog.Error("failed to fetch candidate profile", "err", err)
 			Error(w, http.StatusInternalServerError, "failed to fetch reactions")
 			return
 		}
@@ -390,7 +426,7 @@ func GetMyReactions(s Store) http.HandlerFunc {
 				Links: Links{
 					RelTypeSelf: Link{Href: "/v1/me/recommendations/" + rx.RecommendationID + "/reaction"},
 				},
-				Props: map[string]any{
+				Props: Props{
 					"recommendation_id": rx.RecommendationID,
 					"reactor_type":      rx.ReactorType,
 					"reactor_id":        rx.ReactorID,
@@ -403,7 +439,7 @@ func GetMyReactions(s Store) http.HandlerFunc {
 		Success(w, http.StatusOK, Resource{
 			Links:    links,
 			Embedded: Embedded{"reactions": embedded},
-			Props:    map[string]any{"page": page},
+			Props:    Props{"page": page},
 		})
 	}
 }
@@ -423,14 +459,16 @@ func GetMyMatches(s Store) http.HandlerFunc {
 				Error(w, http.StatusNotFound, "candidate profile not found")
 				return
 			}
+			slog.Error("failed to fetch candidate profile", "err", err)
 			Error(w, http.StatusInternalServerError, "failed to fetch candidate profile")
 			return
 		}
 
 		page := GetPagination(r)
 
-		matches, nextCursor, err := s.GetMatchesByCandidateID(candidate.ID, page.Cursor, page.Limit)
+		matches, nextCursor, err := s.GetMatchesByCandidateID(candidate.ID, page)
 		if err != nil {
+			slog.Error("failed to fetch matches", "err", err)
 			Error(w, http.StatusInternalServerError, "failed to fetch matches")
 			return
 		}
@@ -451,7 +489,7 @@ func GetMyMatches(s Store) http.HandlerFunc {
 				Links: Links{
 					RelTypeSelf: Link{Href: "/v1/positions/" + m.PositionID},
 				},
-				Props: map[string]any{
+				Props: Props{
 					"position_id": m.PositionID,
 					"title":       m.Title,
 					"description": m.Description,
@@ -464,7 +502,7 @@ func GetMyMatches(s Store) http.HandlerFunc {
 		Success(w, http.StatusOK, Resource{
 			Links:    links,
 			Embedded: Embedded{"matches": embedded},
-			Props:    map[string]any{"page": page},
+			Props:    Props{"page": page},
 		})
 	}
 }

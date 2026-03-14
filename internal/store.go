@@ -21,14 +21,14 @@ type (
 		CreateUser(User) (userID string, err error)
 		GetCandidate(id string) (*Candidate, error)
 		GetCandidateByUserID(id string) (*Candidate, error)
-		GetReactionsByCandidateID(candidateID string, cursor string, limit int) ([]Reaction, string, error)
-		GetMatchesByCandidateID(candidateID string, cursor string, limit int) ([]Match, string, error)
+		GetReactionsByCandidateID(candidateID string, page Page) ([]Reaction, string, error)
+		GetMatchesByCandidateID(candidateID string, page Page) ([]Match, string, error)
 		GetRecruiterByUserID(id string) (*Recruiter, error)
 		GetPosition(id string) (*Position, error)
 		GetUserByProvider(provider Provider, providerUserID string) (userID string, roles []string, err error)
 		GetRecommendation(id string) (*Recommendation, error)
 		GetUserRoles(userID string, provider Provider) (roles []string, err error)
-		GetPositionRecommendations(candidateID string, cursor string, limit int) ([]PositionRecommendation, string, error)
+		GetPositionRecommendations(candidateID string, page Page, params RecommendationsQueryParams) ([]PositionRecommendation, string, error)
 		ValidateActiveSession(jti string) (isSessionRevoked bool, err error)
 	}
 
@@ -274,7 +274,7 @@ func (s PostgresStore) CreateUser(u User) (userID string, err error) {
 
 // CreateReaction records a reaction (from a candidate or recruiter) to a recommendation.
 func (s PostgresStore) CreateReaction(r Reaction) error {
-	_, err := s.Postgres.Exec(
+	result, err := s.Postgres.Exec(
 		`
 		INSERT INTO v1.reactions (
 			recommendation_id,
@@ -283,16 +283,24 @@ func (s PostgresStore) CreateReaction(r Reaction) error {
 			reaction_type
 		)
 		VALUES ($1, $2, $3, $4)
-		ON CONFLICT (recommendation_id, reactor_type, reactor_id) DO UPDATE
-		SET reaction_type = EXCLUDED.reaction_type,
-		    created_at = NOW()
+		ON CONFLICT (recommendation_id, reactor_type, reactor_id) DO NOTHING
 		`,
 		r.RecommendationID,
 		r.ReactorType,
 		r.ReactorID,
 		r.ReactionType,
 	)
-	return err
+	if err != nil {
+		return err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return ErrReactionAlreadyExists
+	}
+	return nil
 }
 
 // CreateCandidate creates a candidate
@@ -379,17 +387,22 @@ func (s PostgresStore) CreateRecommendation(positionID, candidateID string) (rec
 }
 
 // GetPositionRecommendations returns paginated position recommendations for a candidate.
-// Cursor is the ID of the last seen recommendation; pass empty string for the first page.
-func (s PostgresStore) GetPositionRecommendations(candidateID string, cursor string, limit int) ([]PositionRecommendation, string, error) {
+func (s PostgresStore) GetPositionRecommendations(candidateID string, page Page, params RecommendationsQueryParams) ([]PositionRecommendation, string, error) {
 	rows, err := s.Postgres.Query(`
 		SELECT r.id, p.id, p.title, p.company, p.description
 		FROM v1.recommendations r
 		JOIN v1.positions p ON p.id = r.position_id
 		WHERE r.candidate_id = $1
 		  AND ($2 = '' OR r.id > $2)
+		  AND (NOT $4 OR NOT EXISTS (
+		      SELECT 1 FROM v1.reactions rx
+		      WHERE rx.recommendation_id = r.id
+		        AND rx.reactor_type = 'candidate'
+		        AND rx.reactor_id = $1
+		  ))
 		ORDER BY r.id ASC
 		LIMIT $3
-	`, candidateID, cursor, limit+1)
+	`, candidateID, page.Cursor, page.Limit+1, params.HideReacted)
 	if err != nil {
 		return nil, "", err
 	}
@@ -408,9 +421,9 @@ func (s PostgresStore) GetPositionRecommendations(candidateID string, cursor str
 	}
 
 	var nextCursor string
-	if len(results) > limit {
-		results = results[:limit]
-		nextCursor = results[limit-1].RecommendationID
+	if len(results) > page.Limit {
+		results = results[:page.Limit]
+		nextCursor = results[page.Limit-1].RecommendationID
 	}
 
 	return results, nextCursor, nil
@@ -418,7 +431,7 @@ func (s PostgresStore) GetPositionRecommendations(candidateID string, cursor str
 
 // GetReactionsByCandidateID returns paginated reactions made by a candidate.
 // Cursor is the ID of the last seen recommendation; pass empty string for the first page.
-func (s PostgresStore) GetReactionsByCandidateID(candidateID string, cursor string, limit int) ([]Reaction, string, error) {
+func (s PostgresStore) GetReactionsByCandidateID(candidateID string, page Page) ([]Reaction, string, error) {
 	rows, err := s.Postgres.Query(`
 		SELECT recommendation_id, reactor_type, reactor_id, reaction_type, created_at
 		FROM v1.reactions
@@ -427,7 +440,7 @@ func (s PostgresStore) GetReactionsByCandidateID(candidateID string, cursor stri
 		  AND ($2 = '' OR recommendation_id > $2)
 		ORDER BY recommendation_id ASC
 		LIMIT $3
-	`, candidateID, cursor, limit+1)
+	`, candidateID, page.Cursor, page.Limit+1)
 	if err != nil {
 		return nil, "", err
 	}
@@ -446,9 +459,9 @@ func (s PostgresStore) GetReactionsByCandidateID(candidateID string, cursor stri
 	}
 
 	var nextCursor string
-	if len(results) > limit {
-		results = results[:limit]
-		nextCursor = results[limit-1].RecommendationID
+	if len(results) > page.Limit {
+		results = results[:page.Limit]
+		nextCursor = results[page.Limit-1].RecommendationID
 	}
 
 	return results, nextCursor, nil
@@ -456,7 +469,7 @@ func (s PostgresStore) GetReactionsByCandidateID(candidateID string, cursor stri
 
 // GetMatchesByCandidateID returns paginated matches for a candidate.
 // Cursor is the ID of the last seen position; pass empty string for the first page.
-func (s PostgresStore) GetMatchesByCandidateID(candidateID string, cursor string, limit int) ([]Match, string, error) {
+func (s PostgresStore) GetMatchesByCandidateID(candidateID string, page Page) ([]Match, string, error) {
 	rows, err := s.Postgres.Query(`
 		SELECT m.position_id, p.title, p.description, COALESCE(p.company, ''), m.created_at
 		FROM v1.matches m
@@ -465,7 +478,7 @@ func (s PostgresStore) GetMatchesByCandidateID(candidateID string, cursor string
 		  AND ($2 = '' OR m.position_id > $2)
 		ORDER BY m.position_id ASC
 		LIMIT $3
-	`, candidateID, cursor, limit+1)
+	`, candidateID, page.Cursor, page.Limit+1)
 	if err != nil {
 		return nil, "", err
 	}
@@ -484,9 +497,9 @@ func (s PostgresStore) GetMatchesByCandidateID(candidateID string, cursor string
 	}
 
 	var nextCursor string
-	if len(results) > limit {
-		results = results[:limit]
-		nextCursor = results[limit-1].PositionID
+	if len(results) > page.Limit {
+		results = results[:page.Limit]
+		nextCursor = results[page.Limit-1].PositionID
 	}
 
 	return results, nextCursor, nil

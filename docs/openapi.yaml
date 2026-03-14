@@ -1,0 +1,568 @@
+openapi: 3.1.0
+
+info:
+  title: Hirevec API
+  version: 1.0.0
+  description: >
+    Job-matching API.
+
+servers:
+  - url: http://localhost:8080
+    description: Local development
+
+security:
+  - bearerAuth: []
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    Link:
+      type: object
+      required: [href]
+      properties:
+        href:
+          type: string
+        templated:
+          type: boolean
+        name:
+          type: string
+
+    Links:
+      type: object
+      additionalProperties:
+        $ref: "#/components/schemas/Link"
+
+    Page:
+      type: object
+      properties:
+        cursor:
+          type: string
+          description: Cursor used for this page. Absent on the first page.
+        limit:
+          type: integer
+          example: 10
+        count:
+          type: integer
+          description: Number of items returned in this page.
+        has_next:
+          type: boolean
+
+    FailData:
+      type: object
+      additionalProperties:
+        type: string
+      example:
+        hide_reacted: "must be one of: false, true"
+
+    FailResponse:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [fail]
+        data:
+          $ref: "#/components/schemas/FailData"
+
+    ErrorResponse:
+      type: object
+      required: [status, message]
+      properties:
+        status:
+          type: string
+          enum: [error]
+        message:
+          type: string
+
+    PositionResource:
+      type: object
+      properties:
+        _links:
+          type: object
+          properties:
+            self:
+              $ref: "#/components/schemas/Link"
+            reaction:
+              $ref: "#/components/schemas/Link"
+        recommendation_id:
+          type: string
+          example: rcm_01KKEREB76T78AHKV8491VQ87S
+        position_id:
+          type: string
+          example: pos_01KKEPRB6N0APHSQXM155SN18C
+        title:
+          type: string
+          example: Backend Engineer
+        company:
+          type: string
+          example: TechCorp
+        description:
+          type: string
+          example: Develop APIs and databases
+
+    ReactionResource:
+      type: object
+      properties:
+        _links:
+          type: object
+          properties:
+            self:
+              $ref: "#/components/schemas/Link"
+        recommendation_id:
+          type: string
+          example: rcm_01KKEREB76T78AHKV8491VQ87S
+        reactor_type:
+          type: string
+          enum: [candidate, recruiter]
+        reactor_id:
+          type: string
+        reaction_type:
+          type: string
+          enum: [positive, negative, neutral]
+        reacted_at:
+          type: string
+          format: date-time
+
+    MatchResource:
+      type: object
+      properties:
+        _links:
+          type: object
+          properties:
+            self:
+              $ref: "#/components/schemas/Link"
+        position_id:
+          type: string
+          example: pos_01KKEPRB6N0APHSQXM155SN18C
+        title:
+          type: string
+          example: Backend Engineer
+        company:
+          type: string
+          example: TechCorp
+        description:
+          type: string
+        matched_at:
+          type: string
+          format: date-time
+
+  parameters:
+    cursor:
+      name: cursor
+      in: query
+      required: false
+      schema:
+        type: string
+      description: Cursor from the previous page's `_links.next`. Omit for the first page.
+    limit:
+      name: limit
+      in: query
+      required: false
+      schema:
+        type: integer
+        default: 10
+        maximum: 50
+      description: Number of items per page.
+
+  responses:
+    Unauthorized:
+      description: Missing or invalid bearer token.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            status: error
+            message: unauthorized
+
+    NotFound:
+      description: Resource not found.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            status: error
+            message: candidate profile not found
+
+    InternalError:
+      description: Unexpected server error.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            status: error
+            message: failed to fetch recommendations
+
+paths:
+  /v1/health:
+    get:
+      operationId: health
+      summary: Health check
+      security: []
+      tags: [System]
+      responses:
+        "200":
+          description: Service is healthy.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [success]
+              example:
+                status: success
+
+  /v1/auth/login/{provider}:
+    get:
+      operationId: loginGet
+      summary: Initiate OAuth login
+      security: []
+      tags: [Auth]
+      parameters:
+        - name: provider
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [google, apple]
+      responses:
+        "302":
+          description: Redirect to provider OAuth consent screen.
+
+  /v1/auth/callback/{provider}:
+    get:
+      operationId: oauthCallback
+      summary: OAuth provider callback
+      security: []
+      tags: [Auth]
+      parameters:
+        - name: provider
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [google, apple]
+        - name: code
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "302":
+          description: Redirect with auth code on success.
+
+  /v1/auth/token:
+    post:
+      operationId: createAccessToken
+      summary: Exchange auth code for access + refresh tokens
+      security: []
+      tags: [Auth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code]
+              properties:
+                code:
+                  type: string
+      responses:
+        "200":
+          description: Token pair issued.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  access_token:
+                    type: string
+                  refresh_token:
+                    type: string
+        "400":
+          description: Invalid or missing code.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FailResponse"
+
+  /v1/auth/keys:
+    get:
+      operationId: publicKeys
+      summary: JWKS public keys for token verification
+      security: []
+      tags: [Auth]
+      responses:
+        "200":
+          description: JWKS document.
+          content:
+            application/json:
+              schema:
+                type: object
+
+  /v1/me/recommendations:
+    get:
+      operationId: getMyRecommendations
+      summary: Get position recommendations
+      tags: [Candidate]
+      parameters:
+        - $ref: "#/components/parameters/cursor"
+        - $ref: "#/components/parameters/limit"
+        - name: hide_reacted
+          in: query
+          required: false
+          schema:
+            type: boolean
+          description: >
+            When true, excludes positions the candidate has already reacted to.
+      responses:
+        "200":
+          description: Paginated list of position recommendations.
+          content:
+            application/hal+json:
+              schema:
+                type: object
+                properties:
+                  _links:
+                    type: object
+                    properties:
+                      self:
+                        $ref: "#/components/schemas/Link"
+                      next:
+                        $ref: "#/components/schemas/Link"
+                      reactions:
+                        $ref: "#/components/schemas/Link"
+                  _embedded:
+                    type: object
+                    properties:
+                      positions:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/PositionResource"
+                  page:
+                    $ref: "#/components/schemas/Page"
+              example:
+                _links:
+                  self:
+                    href: /v1/me/recommendations
+                  next:
+                    href: /v1/me/recommendations?cursor=rcm_01KKEREB77P40R2QZPPN78HB13&limit=1
+                  reactions:
+                    href: /v1/me/reactions
+                _embedded:
+                  positions:
+                    - _links:
+                        self:
+                          href: /v1/me/recommendations/rcm_01KKEREB76T78AHKV8491VQ87S
+                        reaction:
+                          href: /v1/me/recommendations/rcm_01KKEREB76T78AHKV8491VQ87S/reaction
+                      recommendation_id: rcm_01KKEREB76T78AHKV8491VQ87S
+                      position_id: pos_01KKEPRB6N0APHSQXM155SN18C
+                      title: Backend Engineer
+                      company: TechCorp
+                      description: Develop APIs and databases
+                page:
+                  limit: 1
+                  count: 1
+                  has_next: true
+        "400":
+          description: Invalid query parameter.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FailResponse"
+              example:
+                status: fail
+                data:
+                  hide_reacted: "must be one of: false, true"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/me/recommendations/{id}/reaction:
+    post:
+      operationId: createMyReaction
+      summary: React to a position recommendation
+      tags: [Candidate]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Recommendation ID.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reaction_type]
+              properties:
+                reaction_type:
+                  type: string
+                  enum: [positive, negative, neutral]
+            example:
+              reaction_type: positive
+      responses:
+        "201":
+          description: Reaction recorded.
+          content:
+            application/hal+json:
+              schema:
+                type: object
+                properties:
+                  _links:
+                    type: object
+                    properties:
+                      self:
+                        $ref: "#/components/schemas/Link"
+                      up:
+                        $ref: "#/components/schemas/Link"
+                      reactions:
+                        $ref: "#/components/schemas/Link"
+                      matches:
+                        $ref: "#/components/schemas/Link"
+                  status:
+                    type: string
+                    enum: [success]
+              example:
+                _links:
+                  self:
+                    href: /v1/me/recommendations/rcm_01KKEREB76T78AHKV8491VQ87S/reaction
+                  up:
+                    href: /v1/me/recommendations
+                  reactions:
+                    href: /v1/me/reactions
+                  matches:
+                    href: /v1/me/matches
+                status: success
+        "400":
+          description: Invalid body or reaction_type.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FailResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: Recommendation belongs to a different candidate.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FailResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: Reaction already exists — reactions are immutable.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FailResponse"
+              example:
+                status: fail
+                data:
+                  request: "reaction already exists; reactions are immutable"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/me/reactions:
+    get:
+      operationId: getMyReactions
+      summary: Get all reactions made by the candidate
+      tags: [Candidate]
+      parameters:
+        - $ref: "#/components/parameters/cursor"
+        - $ref: "#/components/parameters/limit"
+      responses:
+        "200":
+          description: Paginated list of reactions.
+          content:
+            application/hal+json:
+              schema:
+                type: object
+                properties:
+                  _links:
+                    type: object
+                    properties:
+                      self:
+                        $ref: "#/components/schemas/Link"
+                      next:
+                        $ref: "#/components/schemas/Link"
+                  _embedded:
+                    type: object
+                    properties:
+                      reactions:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/ReactionResource"
+                  page:
+                    $ref: "#/components/schemas/Page"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/me/matches:
+    get:
+      operationId: getMyMatches
+      summary: Get all mutual matches for the candidate
+      tags: [Candidate]
+      parameters:
+        - $ref: "#/components/parameters/cursor"
+        - $ref: "#/components/parameters/limit"
+      responses:
+        "200":
+          description: Paginated list of matches.
+          content:
+            application/hal+json:
+              schema:
+                type: object
+                properties:
+                  _links:
+                    type: object
+                    properties:
+                      self:
+                        $ref: "#/components/schemas/Link"
+                      next:
+                        $ref: "#/components/schemas/Link"
+                  _embedded:
+                    type: object
+                    properties:
+                      matches:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/MatchResource"
+                  page:
+                    $ref: "#/components/schemas/Page"
+              example:
+                _links:
+                  self:
+                    href: /v1/me/matches
+                _embedded:
+                  matches:
+                    - _links:
+                        self:
+                          href: /v1/positions/pos_01KKEPRB6N0APHSQXM155SN18C
+                      position_id: pos_01KKEPRB6N0APHSQXM155SN18C
+                      title: Backend Engineer
+                      company: TechCorp
+                      matched_at: "2026-03-13T19:37:24.839424Z"
+                page:
+                  limit: 10
+                  count: 1
+                  has_next: false
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"

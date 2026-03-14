@@ -23,7 +23,6 @@ type (
 		Error            AuthErrorCode `json:"error"`
 		ErrorDescription string        `json:"error_description,omitempty"`
 		ErrorURI         string        `json:"error_uri,omitempty"`
-		Links            Links         `json:"_links,omitempty"`
 	}
 )
 
