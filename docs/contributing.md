@@ -1,5 +1,6 @@
 1. NO hot-reload files or tools in this repo.
 2. NO linter files or tools in this repo.
+7. NO CI/CD files or tools in this repo.
 3. NO deployment files (Dockerfiles, Charts, Kubernetes configs, VM configs) in this repo.
 4. NO builders or package managers in this repo.
 5. NO external Go dependencies in this repo unless explicitly approved and permitted by the repository owner.
