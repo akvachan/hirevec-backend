@@ -69,7 +69,22 @@ func RunServer(ctx context.Context, c ServerConfig, s StoreInterface, v VaultInt
 		return ErrFailedBindAddress
 	}
 
-	return WaitAndShutdown(ctx, server, StartServer(server, listener), c.GracePeriod)
+	errCh := make(chan error, 1)
+	go func() {
+		slog.Info(
+			"HTTP server starting",
+			"addr", server.Addr,
+		)
+		if err := server.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			errCh <- err
+		}
+	}()
+	slog.Info(
+		"HTTP server ready",
+		"addr", server.Addr,
+	)
+
+	return WaitAndShutdown(ctx, server, errCh, c.GracePeriod)
 }
 
 func NewServer(ctx context.Context, c ServerConfig, s StoreInterface, v VaultInterface) (*http.Server, error) {
@@ -81,24 +96,6 @@ func NewServer(ctx context.Context, c ServerConfig, s StoreInterface, v VaultInt
 		ErrorLog:     slog.NewLogLogger(slog.Default().Handler(), slog.LevelError),
 		BaseContext:  func(_ net.Listener) context.Context { return ctx },
 	}, nil
-}
-
-func StartServer(server *http.Server, ln net.Listener) chan error {
-	errCh := make(chan error, 1)
-	go func() {
-		slog.Info(
-			"HTTP server starting",
-			"addr", server.Addr,
-		)
-		if err := server.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			errCh <- err
-		}
-	}()
-	slog.Info(
-		"HTTP server ready",
-		"addr", server.Addr,
-	)
-	return errCh
 }
 
 func WaitAndShutdown(ctx context.Context, server *http.Server, errCh chan error, gracePeriod time.Duration) error {
