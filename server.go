@@ -271,22 +271,20 @@ func MaxBytesLimiter(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
-type (
-	Method string
-
-	RouteConfig struct {
-		Mux            *http.ServeMux
-		Method         Method
-		Route          string
-		Handler        http.HandlerFunc
-		RequiredScopes []ScopeValueType // required for protected routes
-	}
-)
+type Method string
 
 const (
 	MethodGet  Method = http.MethodGet
 	MethodPost Method = http.MethodPost
 )
+
+type RouteConfig struct {
+	Mux            *http.ServeMux
+	Method         Method
+	Route          string
+	Handler        http.HandlerFunc
+	RequiredScopes []ScopeValueType // required for protected routes
+}
 
 const (
 	RouteOpenAPI              = "/openapi.yaml"
