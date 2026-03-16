@@ -2,16 +2,12 @@ module github.com/akvachan/hirevec-backend
 
 go 1.25.5
 
-// postgres driver
 require github.com/jackc/pgx/v5 v5.8.0
 
-// oauth client
 require golang.org/x/oauth2 v0.34.0
 
-// oidc client
 require github.com/coreos/go-oidc/v3 v3.17.0
 
-// paseto sdk
 require aidanwoods.dev/go-paseto v1.6.0
 
 require (
