@@ -27,7 +27,7 @@ go run cmd/setup/main.go
 ```
 go run cmd/server/main.go
 ```
-4. Open [http://localhost:8080/v1/health](http://localhost:8080/v1/health).
+4. Open [http://localhost:8080/health](http://localhost:8080/health).
 
 #### Cleanup
 
@@ -49,7 +49,7 @@ go run cmd/cleanup/main.go
 ```bash
 docker compose up
 ```
-3. Open [http://localhost:8080/v1/health](http://localhost:8080/v1/health).
+3. Open [http://localhost:8080/health](http://localhost:8080/health).
 
 ## API Usage (Client)
 
