@@ -14,7 +14,6 @@ import (
 	"net/http"
 	"slices"
 	"strings"
-	"sync"
 	"time"
 
 	"aidanwoods.dev/go-paseto"
@@ -25,11 +24,14 @@ import (
 const (
 	DefaultRefreshTokenExpiration = 30 * 24 * time.Hour
 	DefaultAccessTokenExpiration  = 30 * time.Minute
+	DefaultStateTokenExpiration   = 10 * time.Minute
+	DefaultVerifierExpiration     = 10 * time.Minute
 )
 
 const (
-	TokenAudience = "api.hirevec.com"
-	TokenIssuer   = "api.hirevec.com"
+	TokenAudience      = "api.hirevec.com"
+	TokenIssuer        = "api.hirevec.com"
+	StateTokenAudience = "oauth-state"
 )
 
 var (
@@ -45,6 +47,7 @@ var (
 	ErrFailedParseProvider            = errors.New("failed to parse provider")
 	ErrFailedParseScope               = errors.New("failed to parse scope")
 	ErrFailedParseTokenType           = errors.New("failed to parse token type")
+	ErrFailedParseCSRF                = errors.New("failed to parse CSRF")
 	ErrFailedSetProvider              = errors.New("failed to set provider")
 	ErrFailedSetTokenType             = errors.New("failed to set token type")
 	ErrIDTokenRequired                = errors.New("id_token required")
@@ -56,6 +59,7 @@ var (
 	ErrInvalidSubject                 = errors.New("invalid subject")
 	ErrInvalidTokenType               = errors.New("invalid token type")
 	ErrInvalidScopeValueType          = errors.New("invalid scope value type provided")
+	ErrInvalidStateToken              = errors.New("invalid state token")
 )
 
 type Provider string
@@ -146,19 +150,17 @@ const (
 )
 
 type VaultInterface interface {
-	CleanupExpiredStateTokens()
 	CreateAccessToken(userID string, provider Provider, scope Scope) (*AccessToken, error)
 	CreateAuthCodeURL(state string, verifier string, provider Provider) (string, error)
 	CreateRefreshToken(userID string, provider Provider, jti string) (*RefreshToken, error)
-	CreateStateToken() (string, error)
 	CreateTokenPair(userID string, provider Provider, jti string, scope Scope) (*TokenPair, error)
+	CreateStateToken(provider Provider) (string, error)
 	ExchangeAppleCodeForIDToken(ctx context.Context, code string, verifier *http.Cookie) (string, error)
 	ExchangeGoogleCodeForIDToken(ctx context.Context, code string, verifier *http.Cookie) (string, error)
-	GetPublicKey() []byte
 	GetScopeForRoles(roles []Role) (Scope, error)
 	ParseAccessToken(token string) (*AccessTokenClaims, error)
 	ParseRefreshToken(token string) (*RefreshTokenClaims, error)
-	ValidateAndDeleteStateToken(state string) bool
+	ParseStateToken(token string) (*StateTokenClaims, error)
 	VerifyAndParseAppleIDToken(ctx context.Context, rawIDToken string, userJSON string) (*User, error)
 	VerifyAndParseGoogleIDToken(ctx context.Context, rawIDToken string) (*User, error)
 }
@@ -179,6 +181,7 @@ type VaultConfig struct {
 type VaultImpl struct {
 	AccessTokenParser      paseto.Parser
 	RefreshTokenParser     paseto.Parser
+	StateTokenParser       paseto.Parser
 	V4AsymetricPublicKey   paseto.V4AsymmetricPublicKey
 	V4AsymmetricSecretKey  paseto.V4AsymmetricSecretKey
 	V4SymmetricKey         paseto.V4SymmetricKey
@@ -205,6 +208,12 @@ func NewVault(ctx context.Context, cfg VaultConfig) (*VaultImpl, error) {
 	refreshTokenParser.AddRule(paseto.IssuedBy(TokenIssuer))
 	refreshTokenParser.AddRule(paseto.NotExpired())
 	refreshTokenParser.AddRule(paseto.NotBeforeNbf())
+
+	stateTokenParser := paseto.NewParser()
+	stateTokenParser.AddRule(paseto.ForAudience(StateTokenAudience))
+	stateTokenParser.AddRule(paseto.IssuedBy(TokenIssuer))
+	stateTokenParser.AddRule(paseto.NotExpired())
+	stateTokenParser.AddRule(paseto.NotBeforeNbf())
 
 	symmetricKey, err := paseto.V4SymmetricKeyFromHex(cfg.SymmetricKeyHex)
 	if err != nil {
@@ -238,6 +247,7 @@ func NewVault(ctx context.Context, cfg VaultConfig) (*VaultImpl, error) {
 	return &VaultImpl{
 		AccessTokenParser:     accessTokenParser,
 		RefreshTokenParser:    refreshTokenParser,
+		StateTokenParser:      stateTokenParser,
 		V4AsymmetricSecretKey: asymmetricKey,
 		V4AsymetricPublicKey:  asymmetricKey.Public(),
 		V4SymmetricKey:        symmetricKey,
@@ -245,7 +255,7 @@ func NewVault(ctx context.Context, cfg VaultConfig) (*VaultImpl, error) {
 			OAuth2Config: &oauth2.Config{
 				ClientID:     cfg.GoogleClientID,
 				ClientSecret: cfg.GoogleClientSecret,
-				RedirectURL:  fmt.Sprintf("%s:%s/oauth2/callback/google", cfg.Host, cfg.Port),
+				RedirectURL:  fmt.Sprintf("%s/oauth/callback", cfg.Host),
 				Scopes:       []string{oidc.ScopeOpenID, "profile", "email"},
 				Endpoint:     googleProvider.Endpoint(),
 			},
@@ -255,7 +265,7 @@ func NewVault(ctx context.Context, cfg VaultConfig) (*VaultImpl, error) {
 			OAuth2Config: &oauth2.Config{
 				ClientID:     cfg.AppleClientID,
 				ClientSecret: cfg.AppleClientSecret,
-				RedirectURL:  fmt.Sprintf("%s/oauth2/callback/apple", cfg.Host),
+				RedirectURL:  fmt.Sprintf("%s/oauth/callback", cfg.Host),
 				Scopes:       []string{oidc.ScopeOpenID, "name", "email"},
 				Endpoint:     appleProvider.Endpoint(),
 			},
@@ -266,54 +276,60 @@ func NewVault(ctx context.Context, cfg VaultConfig) (*VaultImpl, error) {
 	}, nil
 }
 
-type StateStore struct {
-	mu     sync.RWMutex
-	states map[string]time.Time
+type StateTokenClaims struct {
+	Provider Provider `json:"provider"`
+	CSRF     string   `json:"csrf"`
 }
 
-var stateStore = &StateStore{
-	states: make(map[string]time.Time),
-}
+func (v VaultImpl) CreateStateToken(provider Provider) (string, error) {
+	now := time.Now().UTC()
 
-// CreateStateToken creates and stores a state token
-func (v VaultImpl) CreateStateToken() (string, error) {
+	token := paseto.NewToken()
+	token.SetIssuedAt(now)
+	token.SetNotBefore(now)
+	token.SetExpiration(now.Add(DefaultStateTokenExpiration))
+
+	if err := token.Set("provider", provider); err != nil {
+		return "", ErrFailedSetProvider
+	}
+
 	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil {
 		return "", err
 	}
 	state := base64.URLEncoding.EncodeToString(b)
+	token.SetString("csrf", state)
 
-	stateStore.mu.Lock()
-	stateStore.states[state] = time.Now().Add(10 * time.Minute)
-	stateStore.mu.Unlock()
+	token.SetAudience(StateTokenAudience)
+	token.SetIssuer(TokenIssuer)
 
-	return state, nil
+	return token.V4Encrypt(v.V4SymmetricKey, nil), nil
 }
 
-// ValidateAndDeleteStateToken checks if state exists and deletes it (one-time use)
-func (v VaultImpl) ValidateAndDeleteStateToken(state string) bool {
-	stateStore.mu.Lock()
-	defer stateStore.mu.Unlock()
-
-	expiry, exists := stateStore.states[state]
-	if !exists {
-		return false
+func (v VaultImpl) ParseStateToken(raw string) (*StateTokenClaims, error) {
+	token, err := v.StateTokenParser.ParseV4Local(v.V4SymmetricKey, raw, nil)
+	if err != nil {
+		return nil, ErrInvalidStateToken
 	}
-	delete(stateStore.states, state)
 
-	return !time.Now().After(expiry)
-}
-
-func (v VaultImpl) CleanupExpiredStateTokens() {
-	stateStore.mu.Lock()
-	defer stateStore.mu.Unlock()
-
-	now := time.Now()
-	for state, expiry := range stateStore.states {
-		if now.After(expiry) {
-			delete(stateStore.states, state)
-		}
+	provider, err := token.GetString("provider")
+	if err != nil {
+		return nil, ErrFailedParseProvider
 	}
+	validProvider, err := ToProvider(provider)
+	if err != nil {
+		return nil, ErrInvalidProvider
+	}
+
+	csrf, err := token.GetString("csrf")
+	if err != nil {
+		return nil, ErrFailedParseCSRF
+	}
+
+	return &StateTokenClaims{
+		Provider: validProvider,
+		CSRF:     csrf,
+	}, nil
 }
 
 func (v VaultImpl) CreateAuthCodeURL(state string, verifier string, provider Provider) (string, error) {
@@ -564,10 +580,6 @@ func (v VaultImpl) ParseRefreshToken(tokenString string) (*RefreshTokenClaims, e
 		Provider: validProvider,
 		JTI:      jti,
 	}, nil
-}
-
-func (v VaultImpl) GetPublicKey() []byte {
-	return v.V4AsymetricPublicKey.ExportBytes()
 }
 
 func (v VaultImpl) CreateAccessToken(userID string, provider Provider, scope Scope) (*AccessToken, error) {

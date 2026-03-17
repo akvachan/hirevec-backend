@@ -286,14 +286,13 @@ type RouteConfig struct {
 const (
 	RouteOpenAPI           = "/openapi.yaml"
 	RouteHealth            = "/health"
-	RoutePublicKeys        = "/v1/auth/keys"
-	RouteToken             = "/v1/auth/token"
-	RouteLogin             = "/v1/auth/login/{provider}"
-	RouteCallback          = "/v1/auth/callback/{provider}"
+	RouteOAuthToken        = "/oauth/token"
+	RouteOAuthAuthorize    = "/oauth/authorize"
+	RouteOAuthCallback     = "/oauth/callback"
 	RouteMeRecommendations = "/v1/me/recommendations"
 	RouteMeReactions       = "/v1/me/reactions"
 	RouteMeMatches         = "/v1/me/matches"
-	RouteMyReaction        = "/v1/me/recommendations/{id}/reaction"
+	RouteMeReaction        = "/v1/me/recommendations/{id}/reaction"
 )
 
 func Route(method Method, route string) string {
@@ -352,44 +351,37 @@ func RootMux(s StoreInterface, v VaultInterface) http.Handler {
 
 	PublicRoute(RouteConfig{
 		Mux:     mux,
-		Method:  MethodGet,
-		Route:   RoutePublicKeys,
-		Handler: PublicKeys(v),
-	})
-
-	PublicRoute(RouteConfig{
-		Mux:     mux,
 		Method:  MethodPost,
-		Route:   RouteToken,
+		Route:   RouteOAuthToken,
 		Handler: CreateAccessToken(s, v),
 	})
 
 	PublicRoute(RouteConfig{
 		Mux:     mux,
 		Method:  MethodGet,
-		Route:   RouteLogin,
-		Handler: Login(v),
+		Route:   RouteOAuthAuthorize,
+		Handler: OAuthAuthorize(v),
 	})
 
 	PublicRoute(RouteConfig{
 		Mux:     mux,
 		Method:  MethodPost,
-		Route:   RouteLogin,
-		Handler: Login(v),
+		Route:   RouteOAuthAuthorize,
+		Handler: OAuthAuthorize(v),
 	})
 
 	PublicRoute(RouteConfig{
 		Mux:     mux,
 		Method:  MethodGet,
-		Route:   RouteCallback,
-		Handler: RedirectProvider(s, v),
+		Route:   RouteOAuthCallback,
+		Handler: OAuthCallback(s, v),
 	})
 
 	PublicRoute(RouteConfig{
 		Mux:     mux,
 		Method:  MethodPost,
-		Route:   RouteCallback,
-		Handler: RedirectProvider(s, v),
+		Route:   RouteOAuthCallback,
+		Handler: OAuthCallback(s, v),
 	})
 
 	ProtectedRoute(RouteConfig{
@@ -425,7 +417,7 @@ func RootMux(s StoreInterface, v VaultInterface) http.Handler {
 	ProtectedRoute(RouteConfig{
 		Mux:     mux,
 		Method:  MethodPost,
-		Route:   RouteMyReaction,
+		Route:   RouteMeReaction,
 		Handler: CreateMyReaction(s),
 		RequiredScopes: []ScopeValue{
 			ScopeValueCandidate, ScopeValueRecruiter,
@@ -525,22 +517,6 @@ func Unauthorized(w http.ResponseWriter, code AuthErrorCode, description string)
 	WriteJSON(w, http.StatusUnauthorized, AuthErrorResponse{Error: code, ErrorDescription: description})
 }
 
-func PublicKeys(v VaultInterface) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		publicKey := v.GetPublicKey()
-
-		keys := []PasetoKey{
-			{
-				Version: 4,
-				Kid:     1,
-				Key:     publicKey,
-			},
-		}
-
-		WriteJSON(w, http.StatusOK, PublicPasetoKeys{Keys: keys})
-	}
-}
-
 func CreateAccessToken(s StoreInterface, v VaultInterface) http.HandlerFunc {
 	type RequestBodyCreateToken struct {
 		GrantType    string `json:"grant_type"`
@@ -631,50 +607,52 @@ func CreateAccessToken(s StoreInterface, v VaultInterface) http.HandlerFunc {
 	}
 }
 
-func Login(v VaultInterface) http.HandlerFunc {
+func OAuthAuthorize(v VaultInterface) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		provider, err := ToProvider(r.PathValue("provider"))
+		provider, err := ToProvider(r.URL.Query().Get("provider"))
 		if err != nil {
 			AuthError(w, AuthInvalidRequest, "invalid provider")
+			return
 		}
 
-		state, err := v.CreateStateToken()
+		state, err := v.CreateStateToken(provider)
 		if err != nil {
 			slog.Error("generation of state token failed", "err", err)
 			AuthError(w, AuthInvalidRequest, "internal server error")
 			return
 		}
 
-		tenMinutes := int((10 * time.Minute).Seconds())
+		// needed since we want to pass only CSRF
+		parsed, err := v.ParseStateToken(state)
+		if err != nil {
+			slog.Error("failed to parse state token", "err", err)
+			AuthError(w, AuthInvalidRequest, "internal server error")
+			return
+		}
 
-		// State token is used to prevent CSRF attacks and is stored in a secure, HttpOnly cookie with a short expiration time
 		http.SetCookie(w, &http.Cookie{
-			Name:     "oauth_state",
-			Value:    state,
+			Name:     "oauth_csrf",
+			Value:    parsed.CSRF,
 			Path:     "/",
-			MaxAge:   tenMinutes,
+			MaxAge:   int(DefaultStateTokenExpiration.Seconds()),
 			HttpOnly: true,
 			Secure:   true,
 			SameSite: http.SameSiteLaxMode,
 		})
 
-		// PKCE verifier is used to prevent authorization code interception attacks
+		// PKCE verifier
 		verifier := oauth2.GenerateVerifier()
 		http.SetCookie(w, &http.Cookie{
 			Name:     "oauth_verifier",
 			Value:    verifier,
 			Path:     "/",
-			MaxAge:   tenMinutes,
+			MaxAge:   int(DefaultVerifierExpiration.Seconds()),
 			HttpOnly: true,
 			Secure:   true,
 			SameSite: http.SameSiteLaxMode,
 		})
 
 		url, err := v.CreateAuthCodeURL(state, verifier, provider)
-		if errors.Is(err, ErrInvalidProvider) {
-			AuthError(w, AuthInvalidRequest, "invalid provider")
-			return
-		}
 		if err != nil {
 			slog.Error("generation of auth code url failed", "err", err)
 			AuthError(w, AuthInvalidRequest, "internal server error")
@@ -685,150 +663,115 @@ func Login(v VaultInterface) http.HandlerFunc {
 	}
 }
 
-func RedirectProvider(s StoreInterface, v VaultInterface) http.HandlerFunc {
+func OAuthCallback(s StoreInterface, v VaultInterface) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		provider := r.PathValue("provider")
+		ctx, cancel := context.WithTimeout(r.Context(), DefaultStateTokenExpiration)
+		defer cancel()
 
-		switch provider {
-		case "google":
-			GoogleCallback(s, v, w, r)
-			return
-		case "apple":
-			AppleCallback(s, v, w, r)
-			return
-		default:
-			AuthError(w, AuthInvalidRequest, "invalid provider")
+		stateRaw := r.URL.Query().Get("state")
+		if stateRaw == "" {
+			AuthError(w, AuthInvalidRequest, "missing state")
 			return
 		}
-	}
-}
 
-func GoogleCallback(s StoreInterface, v VaultInterface, w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
-	defer cancel()
+		state, err := v.ParseStateToken(stateRaw)
+		if err != nil {
+			AuthError(w, AuthInvalidRequest, "invalid state token")
+			return
+		}
 
-	stateCookie, err := r.Cookie("oauth_state")
-	if err != nil {
-		AuthError(w, AuthInvalidRequest, "invalid state")
-		return
-	}
-	stateQuery := r.URL.Query().Get("state")
-	if stateCookie.Value != stateQuery || !v.ValidateAndDeleteStateToken(stateQuery) {
-		AuthError(w, AuthInvalidRequest, "invalid state")
-		return
-	}
+		csrfCookie, err := r.Cookie("oauth_csrf")
+		if err != nil || csrfCookie.Value != state.CSRF {
+			AuthError(w, AuthInvalidRequest, "invalid CSRF token")
+			return
+		}
 
-	verifierCookie, err := r.Cookie("oauth_verifier")
-	if err != nil {
-		AuthError(w, AuthInvalidRequest, "invalid oauth_verifier")
-		return
-	}
+		verifierCookie, err := r.Cookie("oauth_verifier")
+		if err != nil {
+			AuthError(w, AuthInvalidRequest, "missing PKCE verifier")
+			return
+		}
 
-	if errParam := r.URL.Query().Get("error"); errParam != "" {
-		AuthError(w, AuthInvalidRequest, "authorization provider error")
-		return
-	}
+		if errParam := r.URL.Query().Get("error"); errParam != "" {
+			AuthError(w, AuthInvalidRequest, "authorization provider error")
+			return
+		}
 
-	DeleteCookies(w, []string{"oauth_state", "oauth_verifier"})
+		code := r.URL.Query().Get("code")
+		if code == "" {
+			AuthError(w, AuthInvalidRequest, "missing authorization code")
+			return
+		}
 
-	code := r.URL.Query().Get("code")
-	if code == "" {
-		AuthError(w, AuthInvalidRequest, "invalid code")
-		return
-	}
+		DeleteCookies(w, []string{"oauth_csrf", "oauth_verifier"})
 
-	rawIDToken, err := v.ExchangeGoogleCodeForIDToken(ctx, code, verifierCookie)
-	if errors.Is(err, ErrIDTokenRequired) {
-		AuthError(w, AuthInvalidRequest, "id_token is required")
-		return
-	}
-	if err != nil {
-		slog.Error("oauth token exchange failed", "err", err)
-		AuthError(w, AuthInvalidRequest, "internal server error")
-		return
-	}
+		var user *User
+		switch state.Provider {
+		case ProviderGoogle:
+			rawIDToken, err := v.ExchangeGoogleCodeForIDToken(ctx, code, verifierCookie)
+			if errors.Is(err, ErrIDTokenRequired) {
+				AuthError(w, AuthInvalidRequest, "id_token is required")
+				return
+			}
+			if err != nil {
+				slog.Error("Google code exchange failed", "err", err)
+				AuthError(w, AuthInvalidRequest, "internal server error")
+				return
+			}
 
-	user, err := v.VerifyAndParseGoogleIDToken(ctx, rawIDToken)
-	if errors.Is(err, ErrInvalidIDToken) {
-		AuthError(w, AuthInvalidRequest, "invalid id_token")
-		return
-	}
-	if errors.Is(err, ErrFailedParseClaims) {
-		AuthError(w, AuthInvalidRequest, "failed to parse claims")
-		return
-	}
-	if errors.Is(err, ErrEmailNotVerified) {
-		AuthError(w, AuthInvalidRequest, "email not verified")
-		return
-	}
-	if err != nil {
-		slog.Error("id_token verification failed", "err", err)
-		AuthError(w, AuthInvalidRequest, "internal server error")
-		return
-	}
+			user, err = v.VerifyAndParseGoogleIDToken(ctx, rawIDToken)
+			if errors.Is(err, ErrInvalidIDToken) {
+				AuthError(w, AuthInvalidRequest, "invalid id_token")
+				return
+			}
+			if errors.Is(err, ErrFailedParseClaims) {
+				AuthError(w, AuthInvalidRequest, "failed to parse claims")
+				return
+			}
+			if errors.Is(err, ErrEmailNotVerified) {
+				AuthError(w, AuthInvalidRequest, "email not verified")
+				return
+			}
+			if err != nil {
+				slog.Error("Google ID token verification failed", "err", err)
+				AuthError(w, AuthInvalidRequest, "internal server error")
+				return
+			}
 
-	FinishAuthFlow(s, v, w, *user)
-}
+		case ProviderApple:
+			rawIDToken, err := v.ExchangeAppleCodeForIDToken(ctx, code, verifierCookie)
+			if errors.Is(err, ErrIDTokenRequired) {
+				AuthError(w, AuthInvalidRequest, "id_token is required")
+				return
+			}
+			if err != nil {
+				slog.Error("Apple code exchange failed", "err", err)
+				AuthError(w, AuthInvalidRequest, "internal server error")
+				return
+			}
 
-func AppleCallback(s StoreInterface, v VaultInterface, w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
-	defer cancel()
+			user, err = v.VerifyAndParseAppleIDToken(ctx, rawIDToken, r.FormValue("user"))
+			if errors.Is(err, ErrInvalidIDToken) {
+				AuthError(w, AuthInvalidRequest, "invalid id_token")
+				return
+			}
+			if errors.Is(err, ErrFailedParseClaims) {
+				AuthError(w, AuthInvalidRequest, "failed to parse claims")
+				return
+			}
+			if err != nil {
+				slog.Error("Apple ID token verification failed", "err", err)
+				AuthError(w, AuthInvalidRequest, "internal server error")
+				return
+			}
 
-	stateCookie, err := r.Cookie("oauth_state")
-	if err != nil {
-		AuthError(w, AuthInvalidRequest, "invalid state")
-		return
-	}
-	stateQuery := r.URL.Query().Get("state")
-	if stateCookie.Value != stateQuery || !v.ValidateAndDeleteStateToken(stateQuery) {
-		AuthError(w, AuthInvalidRequest, "invalid state")
-		return
-	}
+		default:
+			AuthError(w, AuthInvalidRequest, "unsupported provider")
+			return
+		}
 
-	verifierCookie, err := r.Cookie("oauth_verifier")
-	if err != nil {
-		AuthError(w, AuthInvalidRequest, "invalid oauth_verifier")
-		return
+		FinishAuthFlow(s, v, w, *user)
 	}
-
-	if errParam := r.URL.Query().Get("error"); errParam != "" {
-		AuthError(w, AuthInvalidRequest, "authorization provider error")
-		return
-	}
-
-	code := r.URL.Query().Get("code")
-	if code == "" {
-		AuthError(w, AuthInvalidRequest, "invalid code")
-		return
-	}
-
-	rawIDToken, err := v.ExchangeAppleCodeForIDToken(ctx, code, verifierCookie)
-	if errors.Is(err, ErrIDTokenRequired) {
-		AuthError(w, AuthInvalidRequest, "id_token is required")
-		return
-	}
-	if err != nil {
-		slog.Error("oauth token exchange failed", "err", err)
-		AuthError(w, AuthInvalidRequest, "internal server error")
-		return
-	}
-
-	user, err := v.VerifyAndParseAppleIDToken(ctx, rawIDToken, r.FormValue("user"))
-	if errors.Is(err, ErrInvalidIDToken) {
-		AuthError(w, AuthInvalidRequest, "invalid id_token")
-		return
-	}
-	if errors.Is(err, ErrFailedParseClaims) {
-		AuthError(w, AuthInvalidRequest, "failed to parse claims")
-		return
-	}
-	if err != nil {
-		slog.Error("id_token verification failed", "err", err)
-		AuthError(w, AuthInvalidRequest, "internal server error")
-		return
-	}
-
-	FinishAuthFlow(s, v, w, *user)
 }
 
 func FinishAuthFlow(s StoreInterface, v VaultInterface, w http.ResponseWriter, user User) {
