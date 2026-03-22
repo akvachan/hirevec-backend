@@ -268,7 +268,6 @@ type RouteConfig struct {
 }
 
 const (
-	RouteOpenAPI           = "/openapi.yaml"
 	RouteHealth            = "/health"
 	RouteOAuthToken        = "/oauth/token"
 	RouteOAuthAuthorize    = "/oauth/authorize"
@@ -320,12 +319,6 @@ func RootMux(s StoreInterface, v VaultInterface) http.Handler {
 	mux := http.NewServeMux()
 
 	// Public routes
-	PublicRoute(RouteConfig{
-		Mux:     mux,
-		Method:  MethodGet,
-		Route:   RouteOpenAPI,
-		Handler: OpenAPI,
-	})
 	PublicRoute(RouteConfig{
 		Mux:     mux,
 		Method:  MethodGet,
@@ -1053,11 +1046,6 @@ func GenerateUsername() (string, error) {
 	username = strings.ToLower(username)
 
 	return username, nil
-}
-
-func OpenAPI(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/yaml")
-	http.ServeFile(w, r, path.Join("docs", "openapi.yaml"))
 }
 
 func Health(w http.ResponseWriter, r *http.Request) {
