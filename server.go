@@ -68,12 +68,12 @@ func RunServer(ctx context.Context, c ServerConfig, s StoreInterface, v VaultInt
 		return ErrFailedBindAddress
 	}
 
+	slog.Info(
+		"HTTP server starting",
+		"addr", server.Addr,
+	)
 	errCh := make(chan error, 1)
 	go func() {
-		slog.Info(
-			"HTTP server starting",
-			"addr", server.Addr,
-		)
 		if err := server.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			errCh <- err
 		}
