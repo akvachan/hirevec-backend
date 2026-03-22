@@ -44,7 +44,7 @@ func main() {
 
 	validMethods := map[string]bool{"GET": true, "POST": true, "PATCH": true, "DELETE": true, "PUT": true}
 	if !validMethods[method] {
-		common.Die("unsupported HTTP method", "method", method)
+		common.Exit("unsupported HTTP method", "method", method)
 	}
 
 	var bodyReader *bytes.Reader
@@ -52,7 +52,7 @@ func main() {
 		rawBody := os.Args[3]
 		var jsonCheck any
 		if err := json.Unmarshal([]byte(rawBody), &jsonCheck); err != nil {
-			common.Die("invalid JSON body", "err", err)
+			common.Exit("invalid JSON body", "err", err)
 		}
 		bodyReader = bytes.NewReader([]byte(rawBody))
 	} else {
@@ -66,12 +66,12 @@ func main() {
 
 	bearerToken := os.Getenv("ACCESS_TOKEN")
 	if bearerToken == "" {
-		common.Die("access token is not set")
+		common.Exit("access token is not set")
 	}
 
 	req, err := http.NewRequest(method, url, bodyReader)
 	if err != nil {
-		common.Die("failed to create request", "url", url, "method", method, "err", err)
+		common.Exit("failed to create request", "url", url, "method", method, "err", err)
 	}
 
 	req.Header.Add("Authorization", "Bearer "+bearerToken)
@@ -83,13 +83,13 @@ func main() {
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		common.Die("failed to send request", "url", url, "err", err)
+		common.Exit("failed to send request", "url", url, "err", err)
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		common.Die("failed to read response body", "err", err)
+		common.Exit("failed to read response body", "err", err)
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
@@ -112,7 +112,7 @@ func main() {
 	enc.SetIndent("", "  ")
 	enc.SetEscapeHTML(false)
 	if err := enc.Encode(data); err != nil {
-		common.Die("failed to encode json", "err", err)
+		common.Exit("failed to encode json", "err", err)
 	}
 
 	fmt.Println(buf.String())

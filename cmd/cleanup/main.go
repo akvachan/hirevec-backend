@@ -45,7 +45,7 @@ func checkEnvVars() {
 		}
 	}
 	if len(missing) > 0 {
-		common.Die("missing required environment variables", "vars", missing)
+		common.Exit("missing required environment variables", "vars", missing)
 	}
 }
 
@@ -54,7 +54,7 @@ func dropDB(superuser string, dbName string) {
 		"SELECT 1 FROM pg_database WHERE datname = '"+dbName+"';",
 	).Output()
 	if err != nil {
-		common.Die("failed to check database existence", "err", err)
+		common.Exit("failed to check database existence", "err", err)
 	}
 	if strings.TrimSpace(string(out)) != "1" {
 		log.Info("database does not exist, skipping", "db", dbName)
@@ -74,7 +74,7 @@ func dropRole(superuser, user string) {
 		"SELECT 1 FROM pg_roles WHERE rolname = '"+user+"';",
 	).Output()
 	if err != nil {
-		common.Die("failed to check role existence", "err", err)
+		common.Exit("failed to check role existence", "err", err)
 	}
 	if strings.TrimSpace(string(out)) != "1" {
 		log.Info("role does not exist, skipping", "role", user)
@@ -123,7 +123,7 @@ func runSuper(superuser, op, stmt string) {
 	cmd := psqlSuper(superuser, "-c", stmt)
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
-		common.Die("cleanup failed", "op", op, "err", err)
+		common.Exit("cleanup failed", "op", op, "err", err)
 	}
 }
 
