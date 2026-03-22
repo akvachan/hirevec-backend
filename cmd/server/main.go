@@ -46,7 +46,6 @@ func main() {
 			AppleClientSecret:  os.Getenv("APPLE_CLIENT_SECRET"),
 		},
 	); err != nil {
-		slog.Error("app crashed", "err", err)
-		os.Exit(1)
+		common.Die("app crashed", "err", err)
 	}
 }

@@ -41,15 +41,15 @@ func main() {
 	}
 	store, err := hirevec.NewStore(storeCfg)
 	if err != nil {
-		die("failed to create a new store", "err", err)
+		common.Exit("failed to create a new store", "err", err)
 	}
 
 	userID, roles, err := store.GetUserByProvider(hirevec.ProviderGoogle, "google-test-001")
 	if errors.Is(err, hirevec.ErrUserNoRole) {
-		die("user does not have any role yet, add role in init.sql")
+		common.Exit("user does not have any role yet, add role in init.sql")
 	}
 	if err != nil {
-		die("could not get userID and roles", "err", err)
+		common.Exit("could not get userID and roles", "err", err)
 	}
 
 	vaultCfg := hirevec.VaultConfig{
@@ -59,22 +59,17 @@ func main() {
 	}
 	vault, err := hirevec.NewVault(ctx, vaultCfg)
 	if err != nil {
-		die("failed to create a new vault", "err", err)
+		common.Exit("failed to create a new vault", "err", err)
 	}
 
 	token, err := vault.CreateAccessToken(userID, hirevec.ProviderGoogle, roles)
 	if err != nil {
-		die("failed to create a refresh token", "err", err)
+		common.Exit("failed to create a refresh token", "err", err)
 	}
 
 	if err := os.Setenv("ACCESS_TOKEN", token.AccessToken); err != nil {
-		die("failed to set ACCESS_TOKEN environment variable")
+		common.Exit("failed to set ACCESS_TOKEN environment variable")
 	}
 
 	fmt.Printf("\n%s\n", token.AccessToken)
-}
-
-func die(msg string, args ...any) {
-	slog.Error(msg, args...)
-	os.Exit(1)
 }

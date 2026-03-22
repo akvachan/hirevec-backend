@@ -47,7 +47,7 @@ func checkPostgres() {
 		default:
 			hint = "https://www.postgresql.org/download/"
 		}
-		die("psql not found", "hint", hint)
+		common.Exit("psql not found", "hint", hint)
 	}
 
 	out, _ := exec.Command("psql", "--version").Output()
@@ -58,7 +58,7 @@ func checkPostgres() {
 
 	if path, err := exec.LookPath("pg_isready"); err == nil {
 		if err := exec.Command(path, "-h", host, "-p", port).Run(); err != nil {
-			die("postgres not reachable, start it first", "host", host, "port", port)
+			common.Exit("postgres not reachable, start it first", "host", host, "port", port)
 		}
 		log.Info("postgres is reachable", "host", host, "port", port)
 	}
@@ -96,7 +96,7 @@ END $$;`)
 		"SELECT 1 FROM pg_database WHERE datname = '"+dbName+"';",
 	).Output()
 	if err != nil {
-		die("failed to check database existence", "err", err)
+		common.Exit("failed to check database existence", "err", err)
 	}
 	if strings.TrimSpace(string(out)) != "1" {
 		runSuper(superuser, "create database", "CREATE DATABASE "+dbName+" OWNER "+user+";")
@@ -112,7 +112,7 @@ END $$;`)
 func initDB() {
 	out, err := psqlApp("-c", "SELECT to_regclass('"+sentinelTable+"');").Output()
 	if err != nil {
-		die("failed to query database", "err", err)
+		common.Exit("failed to query database", "err", err)
 	}
 
 	if strings.Contains(string(out), sentinelTable) {
@@ -124,7 +124,7 @@ func initDB() {
 	cmd := psqlApp("-f", initSQLPath)
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
-		die("database initialization failed", "err", err)
+		common.Exit("database initialization failed", "err", err)
 	}
 	log.Info("database initialized")
 }
@@ -167,7 +167,7 @@ func runSuper(superuser, op, stmt string) {
 	cmd := psqlSuper(superuser, "-c", stmt)
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
-		die("provisioning failed", "op", op, "err", err)
+		common.Exit("provisioning failed", "op", op, "err", err)
 	}
 }
 
@@ -191,9 +191,4 @@ func psqlApp(args ...string) *exec.Cmd {
 	cmd := exec.Command("psql", append(base, args...)...)
 	cmd.Env = append(os.Environ(), "PGPASSWORD="+os.Getenv("POSTGRES_PASSWORD"))
 	return cmd
-}
-
-func die(msg string, args ...any) {
-	log.Error(msg, args...)
-	os.Exit(1)
 }
