@@ -318,7 +318,6 @@ func ProtectedRoute(cfg RouteConfig, v VaultInterface) {
 func RootMux(s StoreInterface, v VaultInterface) http.Handler {
 	mux := http.NewServeMux()
 
-	// Public routes
 	PublicRoute(RouteConfig{
 		Mux:     mux,
 		Method:  MethodGet,
@@ -330,7 +329,7 @@ func RootMux(s StoreInterface, v VaultInterface) http.Handler {
 		Mux:     mux,
 		Method:  MethodPost,
 		Route:   RouteOAuthToken,
-		Handler: CreateAccessToken(s, v),
+		Handler: OAuthToken(s, v),
 	})
 
 	PublicRoute(RouteConfig{
@@ -494,7 +493,7 @@ func Unauthorized(w http.ResponseWriter, code AuthErrorCode, description string)
 	WriteJSON(w, http.StatusUnauthorized, AuthErrorResponse{Error: code, ErrorDescription: description})
 }
 
-func CreateAccessToken(s StoreInterface, v VaultInterface) http.HandlerFunc {
+func OAuthToken(s StoreInterface, v VaultInterface) http.HandlerFunc {
 	type RequestBodyCreateToken struct {
 		GrantType    string `json:"grant_type"`
 		RefreshToken string `json:"refresh_token"`

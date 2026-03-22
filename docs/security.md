@@ -15,7 +15,7 @@
 The server implements OAuth2.0 Authorization Code Flow via OIDC. Developers should familiarize themselves with [RFC6749](https://www.rfc-editor.org/rfc/rfc6749).
 
 ## Tokens Schema
-PASETO (Platform-Agnostic Security Tokens) are used for access and refresh tokens. Developers should familiarize themselves with [PASETO](https://paseto.io/).
+PASETO (Platform-Agnostic Security Tokens) are used for access, refresh and state tokens. Developers should familiarize themselves with [PASETO](https://paseto.io/).
 
 ## Authentication
 Anyone can access authentication endpoint (currently `/v1/auth/login/{provider}`) to obtain an access and refresh tokens. 
