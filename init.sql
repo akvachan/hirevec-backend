@@ -3,7 +3,7 @@ create schema if not exists v1;
 -- ULID base generator
 create or replace function generate_ulid() returns text as $$
 declare
-  encoding   bytea = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
+  encoding   bytea = '0123456789abcdefghjkmnpqrstvwxyz';
   timestamp  bytea = e'\\000\\000\\000\\000\\000\\000';
   output     text  = '';
   unix_time  bigint;
@@ -123,6 +123,7 @@ create table if not exists v1.recommendations (
 );
 create index if not exists idx_recommendations_position on v1.recommendations(position_id);
 create index if not exists idx_recommendations_candidate on v1.recommendations(candidate_id);
+create index if not exists idx_recommendations_candidate_id on v1.recommendations(candidate_id, id asc);
 
 -- unified reactions
 create table if not exists v1.reactions (

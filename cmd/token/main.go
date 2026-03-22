@@ -5,6 +5,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -43,7 +44,13 @@ func main() {
 		die("failed to create a new store", "err", err)
 	}
 
-	userID, _, err := store.GetUserByProvider(hirevec.ProviderGoogle, "google-test-001")
+	userID, roles, err := store.GetUserByProvider(hirevec.ProviderGoogle, "google-test-001")
+	if errors.Is(err, hirevec.ErrUserNoRole) {
+		die("user does not have any role yet, add role in init.sql")
+	}
+	if err != nil {
+		die("could not get userID and roles", "err", err)
+	}
 
 	vaultCfg := hirevec.VaultConfig{
 		SymmetricKeyHex:       os.Getenv("SYMMETRIC_KEY"),
@@ -55,10 +62,7 @@ func main() {
 		die("failed to create a new vault", "err", err)
 	}
 
-	token, err := vault.CreateAccessToken(userID, hirevec.ProviderGoogle, hirevec.Scope{
-		hirevec.ScopeValueCandidate,
-		hirevec.ScopeValueRecruiter,
-	})
+	token, err := vault.CreateAccessToken(userID, hirevec.ProviderGoogle, roles)
 	if err != nil {
 		die("failed to create a refresh token", "err", err)
 	}

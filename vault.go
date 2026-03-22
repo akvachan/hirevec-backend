@@ -12,7 +12,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"slices"
 	"strings"
 	"time"
 
@@ -35,6 +34,7 @@ const (
 )
 
 var (
+	ErrFailedSetScope                 = errors.New("failed to set scope")
 	ErrFailedCreateAccessToken        = errors.New("failed to create access token")
 	ErrFailedCreateAppleOIDCProvider  = errors.New("failed to create Apple OIDC provider")
 	ErrFailedCreateGoogleOIDCProvider = errors.New("failed to create Google OIDC provider")
@@ -58,7 +58,7 @@ var (
 	ErrInvalidRole                    = errors.New("invalid role")
 	ErrInvalidSubject                 = errors.New("invalid subject")
 	ErrInvalidTokenType               = errors.New("invalid token type")
-	ErrInvalidScopeValueType          = errors.New("invalid scope value type provided")
+	ErrInvalidScopeValue              = errors.New("invalid scope value provided")
 	ErrInvalidStateToken              = errors.New("invalid state token")
 )
 
@@ -109,18 +109,6 @@ func (s Scope) Raw() string {
 	return strings.Join(result, " ")
 }
 
-func NewScope(scope string) (Scope, error) {
-	var result Scope
-	for _, role := range strings.Fields(scope) {
-		scopeValue, err := ToScopeValue(role)
-		if err != nil {
-			return result, ErrInvalidScopeValueType
-		}
-		result = append(result, scopeValue)
-	}
-	return result, nil
-}
-
 type ScopeValue string
 
 const (
@@ -138,7 +126,7 @@ func ToScopeValue(str string) (ScopeValue, error) {
 	case "role:onboarding":
 		return ScopeValueOnboarding, nil
 	default:
-		return "", ErrInvalidScopeValueType
+		return "", ErrInvalidScopeValue
 	}
 }
 
@@ -150,14 +138,13 @@ const (
 )
 
 type VaultInterface interface {
-	CreateAccessToken(userID string, provider Provider, scope Scope) (*AccessToken, error)
+	CreateAccessToken(userID ULID, provider Provider, roles map[Role]ULID) (*AccessToken, error)
 	CreateAuthCodeURL(state string, verifier string, provider Provider) (string, error)
-	CreateRefreshToken(userID string, provider Provider, jti string) (*RefreshToken, error)
-	CreateTokenPair(userID string, provider Provider, jti string, scope Scope) (*TokenPair, error)
+	CreateRefreshToken(userID ULID, provider Provider, jti ULID) (*RefreshToken, error)
+	CreateTokenPair(userID ULID, provider Provider, jti ULID, roles map[Role]ULID) (*TokenPair, error)
 	CreateStateToken(provider Provider) (string, error)
 	ExchangeAppleCodeForIDToken(ctx context.Context, code string, verifier *http.Cookie) (string, error)
 	ExchangeGoogleCodeForIDToken(ctx context.Context, code string, verifier *http.Cookie) (string, error)
-	GetScopeForRoles(roles []Role) (Scope, error)
 	ParseAccessToken(token string) (*AccessTokenClaims, error)
 	ParseRefreshToken(token string) (*RefreshTokenClaims, error)
 	ParseStateToken(token string) (*StateTokenClaims, error)
@@ -459,26 +446,16 @@ func (v VaultImpl) VerifyAndParseAppleIDToken(ctx context.Context, rawIDToken st
 }
 
 type (
-	PasetoKey struct {
-		Version uint8  `json:"version"`
-		Kid     uint32 `json:"kid"`
-		Key     []byte `json:"key"`
-	}
-
-	PublicPasetoKeys struct {
-		Keys []PasetoKey `json:"keys"`
-	}
-
 	RefreshTokenClaims struct {
-		UserID   string
+		UserID   ULID
 		Provider Provider
-		JTI      string
+		JTI      ULID
 	}
 
 	AccessTokenClaims struct {
-		UserID   string
+		UserID   ULID
 		Provider Provider
-		Scope    Scope
+		Roles    map[Role]ULID
 	}
 
 	AccessToken struct {
@@ -486,13 +463,15 @@ type (
 		TokenType   string `json:"token_type"`
 		ExpiresIn   uint32 `json:"expires_in"`
 		Scope       string `json:"scope"`
-		UserID      string `json:"user_id"`
+		UserID      ULID   `json:"user_id"`
+		CandidateID ULID   `json:"candidate_id,omitempty"`
+		RecruiterID ULID   `json:"recruiter_id,omitempty"`
 	}
 
 	RefreshToken struct {
 		RefreshToken string `json:"refresh_token"`
 		ExpiresIn    uint32 `json:"expires_in"`
-		UserID       string `json:"user_id"`
+		UserID       ULID   `json:"user_id"`
 	}
 
 	TokenPair struct {
@@ -501,7 +480,7 @@ type (
 		ExpiresIn    uint32 `json:"expires_in"`
 		RefreshToken string `json:"refresh_token"`
 		Scope        string `json:"scope"`
-		UserID       string `json:"user_id"`
+		UserID       ULID   `json:"user_id"`
 	}
 )
 
@@ -525,20 +504,20 @@ func (v VaultImpl) ParseAccessToken(tokenString string) (*AccessTokenClaims, err
 		return nil, ErrInvalidProvider
 	}
 
-	scope, err := parsedToken.GetString("scope")
-	if err != nil {
-		return nil, ErrFailedParseScope
+	roles := make(map[Role]ULID)
+	candidateID, err := parsedToken.GetString("candidate_id")
+	if candidateID != "" {
+		roles[RoleCandidate] = ULID(candidateID)
 	}
-
-	validScope, err := NewScope(scope)
-	if err != nil {
-		return nil, ErrInvalidScopeValueType
+	recruiterID, err := parsedToken.GetString("recruiter_id")
+	if candidateID != "" {
+		roles[RoleRecruiter] = ULID(recruiterID)
 	}
 
 	return &AccessTokenClaims{
-		UserID:   userID,
+		UserID:   ULID(userID),
 		Provider: validProvider,
-		Scope:    validScope,
+		Roles:    roles,
 	}, nil
 }
 
@@ -576,18 +555,36 @@ func (v VaultImpl) ParseRefreshToken(tokenString string) (*RefreshTokenClaims, e
 	}
 
 	return &RefreshTokenClaims{
-		UserID:   userID,
+		UserID:   ULID(userID),
 		Provider: validProvider,
-		JTI:      jti,
+		JTI:      ULID(jti),
 	}, nil
 }
 
-func (v VaultImpl) CreateAccessToken(userID string, provider Provider, scope Scope) (*AccessToken, error) {
+func RolesToScope(roles map[Role]ULID) (*Scope, error) {
+	var scope Scope
+	for role := range roles {
+		switch {
+		case role == RoleCandidate:
+			scope = append(scope, ScopeValue("role:"+string(RoleCandidate)))
+		case role == RoleOnboarding:
+			scope = append(scope, ScopeValue("role:"+string(RoleOnboarding)))
+		case role == RoleRecruiter:
+			scope = append(scope, ScopeValue("role:"+string(RoleRecruiter)))
+		default:
+			return nil, ErrInvalidRole
+		}
+	}
+	return &scope, nil
+}
+
+func (v VaultImpl) CreateAccessToken(userID ULID, provider Provider, roles map[Role]ULID) (*AccessToken, error) {
 	now := time.Now().UTC()
 
+	_, hasOnboarding := roles[RoleOnboarding]
 	var expiration time.Duration
 	switch {
-	case slices.Contains(scope, ScopeValueOnboarding):
+	case hasOnboarding:
 		expiration = 24 * time.Hour
 	case v.AccessTokenExpiration != 0:
 		expiration = v.AccessTokenExpiration
@@ -598,7 +595,7 @@ func (v VaultImpl) CreateAccessToken(userID string, provider Provider, scope Sco
 	token := paseto.NewToken()
 	token.SetAudience(TokenAudience)
 	token.SetIssuer(TokenIssuer)
-	token.SetSubject(userID)
+	token.SetSubject(string(userID))
 	token.SetExpiration(now.Add(expiration))
 	token.SetNotBefore(now)
 	token.SetIssuedAt(now)
@@ -611,29 +608,53 @@ func (v VaultImpl) CreateAccessToken(userID string, provider Provider, scope Sco
 		return nil, ErrFailedSetProvider
 	}
 
-	rawScope := scope.Raw()
-	token.SetString("scope", rawScope)
+	scope, err := RolesToScope(roles)
+	if err != nil {
+		return nil, ErrFailedSetScope
+	}
+	if err := token.Set("scope", scope); err != nil {
+		return nil, ErrFailedSetScope
+	}
+
+	var candidateID, recruiterID ULID
+	for role, id := range roles {
+		switch role {
+		case RoleCandidate:
+			if err := token.Set("candidate_id", id); err != nil {
+				return nil, ErrFailedSetScope
+			}
+			candidateID = id
+
+		case RoleRecruiter:
+			if err := token.Set("recruiter_id", id); err != nil {
+				return nil, ErrFailedSetScope
+			}
+			recruiterID = id
+		}
+	}
 
 	return &AccessToken{
 		AccessToken: token.V4Sign(v.V4AsymmetricSecretKey, nil),
 		TokenType:   "Bearer",
 		ExpiresIn:   uint32(expiration.Abs().Seconds()),
-		Scope:       rawScope,
+		Scope:       scope.Raw(),
 		UserID:      userID,
+		CandidateID: candidateID,
+		RecruiterID: recruiterID,
 	}, nil
 }
 
-func (v VaultImpl) CreateRefreshToken(userID string, provider Provider, jti string) (*RefreshToken, error) {
+func (v VaultImpl) CreateRefreshToken(userID ULID, provider Provider, jti ULID) (*RefreshToken, error) {
 	now := time.Now().UTC()
 
 	token := paseto.NewToken()
 	token.SetAudience(TokenAudience)
 	token.SetIssuer(TokenIssuer)
-	token.SetSubject(userID)
+	token.SetSubject(string(userID))
 	token.SetExpiration(now.Add(DefaultRefreshTokenExpiration))
 	token.SetNotBefore(now)
 	token.SetIssuedAt(now)
-	token.SetJti(jti)
+	token.SetJti(string(jti))
 
 	if err := token.Set("token_type", IssuedTokenTypeRefreshToken); err != nil {
 		return nil, ErrFailedSetTokenType
@@ -657,8 +678,8 @@ func (v VaultImpl) CreateRefreshToken(userID string, provider Provider, jti stri
 	}, nil
 }
 
-func (v VaultImpl) CreateTokenPair(userID string, provider Provider, jti string, scope Scope) (*TokenPair, error) {
-	accessToken, err := v.CreateAccessToken(userID, provider, scope)
+func (v VaultImpl) CreateTokenPair(userID ULID, provider Provider, jti ULID, roles map[Role]ULID) (*TokenPair, error) {
+	accessToken, err := v.CreateAccessToken(userID, provider, roles)
 	if err != nil {
 		return nil, ErrFailedCreateAccessToken
 	}
@@ -666,6 +687,11 @@ func (v VaultImpl) CreateTokenPair(userID string, provider Provider, jti string,
 	refreshToken, err := v.CreateRefreshToken(userID, provider, jti)
 	if err != nil {
 		return nil, ErrFailedCreateRefreshToken
+	}
+
+	scope, err := RolesToScope(roles)
+	if err != nil {
+		return nil, ErrFailedParseScope
 	}
 
 	return &TokenPair{
@@ -676,23 +702,4 @@ func (v VaultImpl) CreateTokenPair(userID string, provider Provider, jti string,
 		Scope:        scope.Raw(),
 		UserID:       userID,
 	}, nil
-}
-
-func (v VaultImpl) GetScopeForRoles(roles []Role) (Scope, error) {
-	scope := make([]ScopeValue, 0, len(roles))
-
-	for _, r := range roles {
-		switch r {
-		case RoleCandidate, RoleOnboarding, RoleRecruiter:
-			scopeValue, err := ToScopeValue("role:" + string(r))
-			if err != nil {
-				return scope, err
-			}
-			scope = append(scope, scopeValue)
-		default:
-			return scope, ErrInvalidRole
-		}
-	}
-
-	return scope, nil
 }

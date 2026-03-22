@@ -4,6 +4,7 @@
 package hirevec
 
 import (
+	"cmp"
 	"context"
 	"crypto/rand"
 	"database/sql"
@@ -45,7 +46,6 @@ var (
 	ErrNameForbiddenChars           = errors.New("name contains forbidden characters")
 	ErrNameTooLong                  = errors.New("name too long")
 	ErrNameTooShort                 = errors.New("name too short")
-	ErrInvalidHideReactedParamValue = errors.New("invalid value for hide_reacted query parameter")
 	ErrFailedCloseRequestBody       = errors.New("failed to close request body")
 )
 
@@ -166,8 +166,8 @@ func PanicHandler(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
-func GetUserID(r *http.Request) (string, bool) {
-	userID, ok := r.Context().Value(ContextKeyUserID).(string)
+func GetUserID(r *http.Request) (ULID, bool) {
+	userID, ok := r.Context().Value(ContextKeyUserID).(ULID)
 	return userID, ok
 }
 
@@ -189,23 +189,7 @@ func GetPagination(r *http.Request) Page {
 	return p
 }
 
-func GetRecommendationsQueryParams(r *http.Request) (RecommendationsQueryParams, error) {
-	hideReacted := r.URL.Query().Get("hide_reacted")
-	var params RecommendationsQueryParams
-	switch hideReacted {
-	case "true":
-		params.HideReacted = true
-	case "false":
-		params.HideReacted = false
-	case "":
-		params.HideReacted = false
-	default:
-		return params, ErrInvalidHideReactedParamValue
-	}
-	return params, nil
-}
-
-func Authentication(v VaultInterface, allowedScopes []ScopeValue) Middleware {
+func Authentication(v VaultInterface, allowedRoles []Role) Middleware {
 	return func(next http.HandlerFunc) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
 			var bearer string
@@ -226,13 +210,13 @@ func Authentication(v VaultInterface, allowedScopes []ScopeValue) Middleware {
 				return
 			}
 
-			allowed := make(map[ScopeValue]bool, len(allowedScopes))
-			for _, s := range allowedScopes {
+			allowed := make(map[Role]bool, len(allowedRoles))
+			for _, s := range allowedRoles {
 				allowed[s] = true
 			}
 
-			for _, s := range claims.Scope {
-				if _, ok := allowed[s]; !ok {
+			for role := range claims.Roles {
+				if _, ok := allowed[role]; !ok {
 					AuthError(w, AuthInvalidGrant, "unauthorized")
 					return
 				}
@@ -276,11 +260,11 @@ const (
 )
 
 type RouteConfig struct {
-	Mux            *http.ServeMux
-	Method         Method
-	Route          string
-	Handler        http.HandlerFunc
-	RequiredScopes []ScopeValue // required for protected routes
+	Mux           *http.ServeMux
+	Method        Method
+	Route         string
+	Handler       http.HandlerFunc
+	RequiredRoles []Role // required for protected routes
 }
 
 const (
@@ -323,7 +307,7 @@ func ProtectedRoute(cfg RouteConfig, v VaultInterface) {
 		Logger,
 		PanicHandler,
 		MaxBytesLimiter,
-		Authentication(v, cfg.RequiredScopes),
+		Authentication(v, cfg.RequiredRoles),
 	)
 
 	cfg.Mux.Handle(
@@ -389,8 +373,8 @@ func RootMux(s StoreInterface, v VaultInterface) http.Handler {
 		Method:  MethodGet,
 		Route:   RouteMeRecommendations,
 		Handler: GetMeRecommendations(s),
-		RequiredScopes: []ScopeValue{
-			ScopeValueCandidate, ScopeValueRecruiter,
+		RequiredRoles: []Role{
+			RoleCandidate, RoleRecruiter,
 		},
 	}, v)
 
@@ -399,8 +383,8 @@ func RootMux(s StoreInterface, v VaultInterface) http.Handler {
 		Method:  MethodGet,
 		Route:   RouteMeReactions,
 		Handler: GetMeReactions(s),
-		RequiredScopes: []ScopeValue{
-			ScopeValueCandidate, ScopeValueRecruiter,
+		RequiredRoles: []Role{
+			RoleCandidate, RoleRecruiter,
 		},
 	}, v)
 
@@ -409,8 +393,8 @@ func RootMux(s StoreInterface, v VaultInterface) http.Handler {
 		Method:  MethodGet,
 		Route:   RouteMeMatches,
 		Handler: GetMeMatches(s),
-		RequiredScopes: []ScopeValue{
-			ScopeValueCandidate, ScopeValueRecruiter,
+		RequiredRoles: []Role{
+			RoleCandidate, RoleRecruiter,
 		},
 	}, v)
 
@@ -419,8 +403,8 @@ func RootMux(s StoreInterface, v VaultInterface) http.Handler {
 		Method:  MethodPost,
 		Route:   RouteMeReaction,
 		Handler: CreateMyReaction(s),
-		RequiredScopes: []ScopeValue{
-			ScopeValueCandidate, ScopeValueRecruiter,
+		RequiredRoles: []Role{
+			RoleCandidate, RoleRecruiter,
 		},
 	}, v)
 
@@ -545,7 +529,7 @@ func CreateAccessToken(s StoreInterface, v VaultInterface) http.HandlerFunc {
 			return
 		}
 
-		isRefreshTokenRevoked, err := s.ValidateActiveSession(claims.JTI)
+		isRefreshTokenRevoked, err := s.IsActiveSession(claims.JTI)
 		if err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
 				AuthError(w, AuthInvalidGrant, "invalid refresh token")
@@ -581,18 +565,7 @@ func CreateAccessToken(s StoreInterface, v VaultInterface) http.HandlerFunc {
 			return
 		}
 
-		scope, err := v.GetScopeForRoles(roles)
-		if err != nil {
-			slog.Error(
-				"failed to get scope for the user with the following roles",
-				"err", err,
-				"user_id", claims.UserID,
-				"roles", roles,
-			)
-			AuthError(w, AuthInvalidRequest, "internal server error")
-			return
-		}
-		accessToken, err := v.CreateAccessToken(claims.UserID, claims.Provider, scope)
+		accessToken, err := v.CreateAccessToken(claims.UserID, claims.Provider, roles)
 		if err != nil {
 			slog.Error(
 				"token creation failed",
@@ -806,8 +779,8 @@ func FinishAuthFlow(s StoreInterface, v VaultInterface, w http.ResponseWriter, u
 	CreateTokenPair(s, v, w, userID, user.Provider, roles)
 }
 
-func CreateOnboardingToken(v VaultInterface, w http.ResponseWriter, userID string, provider Provider) {
-	accessToken, err := v.CreateAccessToken(userID, provider, Scope{ScopeValueOnboarding})
+func CreateOnboardingToken(v VaultInterface, w http.ResponseWriter, userID ULID, provider Provider) {
+	accessToken, err := v.CreateAccessToken(userID, provider, map[Role]ULID{RoleOnboarding: ""})
 	if err != nil {
 		slog.Error("failed to create access token", "err", err)
 		AuthError(w, AuthInvalidRequest, "internal server error")
@@ -817,14 +790,7 @@ func CreateOnboardingToken(v VaultInterface, w http.ResponseWriter, userID strin
 	AuthAccessToken(w, *accessToken)
 }
 
-func CreateTokenPair(s StoreInterface, v VaultInterface, w http.ResponseWriter, userID string, provider Provider, roles []Role) {
-	scope, err := v.GetScopeForRoles(roles)
-	if err != nil {
-		slog.Error("failed to get scope for roles", "err", err)
-		AuthError(w, AuthInvalidRequest, "internal server error")
-		return
-	}
-
+func CreateTokenPair(s StoreInterface, v VaultInterface, w http.ResponseWriter, userID ULID, provider Provider, roles map[Role]ULID) {
 	jti, err := s.CreateRefreshToken(userID, time.Now().UTC().Add(DefaultRefreshTokenExpiration.Abs()))
 	if err != nil {
 		slog.Error("query failed", "err", err)
@@ -832,7 +798,7 @@ func CreateTokenPair(s StoreInterface, v VaultInterface, w http.ResponseWriter, 
 		return
 	}
 
-	tokenPair, err := v.CreateTokenPair(userID, provider, jti, scope)
+	tokenPair, err := v.CreateTokenPair(userID, provider, jti, roles)
 	if err != nil {
 		slog.Error("failed to create token pair", "err", err)
 		AuthError(w, AuthInvalidRequest, "internal server error")
@@ -938,10 +904,6 @@ type (
 		Status ResponseStatus `json:"status"`
 		Data   FailData       `json:"data,omitempty"`
 		Links  Links          `json:"_links,omitempty"`
-	}
-
-	RecommendationsQueryParams struct {
-		HideReacted bool `json:"hide_reacted"`
 	}
 )
 
@@ -1105,68 +1067,101 @@ func Health(w http.ResponseWriter, r *http.Request) {
 // Returns position recommendations for the authenticated candidate.
 func GetMeRecommendations(s StoreInterface) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		userID, ok := GetUserID(r)
+		claims, ok := GetClaims(r)
 		if !ok {
-			Error(w, http.StatusUnauthorized, "unauthorized")
+			slog.Error("failed to access claims")
+			Error(w, http.StatusInternalServerError, "internal server error")
 			return
 		}
 
-		candidate, err := s.GetCandidateByUserID(userID)
-		if err != nil {
-			if errors.Is(err, ErrCandidateNotFound) {
-				Error(w, http.StatusNotFound, "candidate profile not found")
+		q := r.URL.Query()
+		page := GetPagination(r)
+		excludeReacted := q.Get("exclude_reacted") == "true"
+		embedded := Embedded{}
+		posNextCursor, canNextCursor := "done", "done"
+		totalCount := 0
+
+		candidateID, isCandidate := claims.Roles[RoleCandidate]
+		recruiterID, isRecruiter := claims.Roles[RoleRecruiter]
+		if !isCandidate && !isRecruiter {
+			slog.Error("user has neither candidate nor recruiter role")
+			Error(w, http.StatusInternalServerError, "internal server error")
+			return
+		}
+
+		if isCandidate && q.Get("exclude_positions") != "true" && q.Get("pos_cursor") != "done" {
+			posPage := page
+			posPage.Cursor = q.Get("pos_cursor")
+			recs, cursor, err := s.GetPositionRecommendations(candidateID, posPage, excludeReacted)
+			if err != nil {
+				slog.Error("failed to fetch position recommendations", "err", err)
+				Error(w, http.StatusInternalServerError, "internal server error")
 				return
 			}
-			slog.Error("failed to fetch candidate profile", "err", err)
-			Error(w, http.StatusInternalServerError, "failed to fetch candidate profile")
-			return
+			posNextCursor = cmp.Or(string(cursor), "done")
+			totalCount += len(recs)
+			positions := make([]Resource, len(recs))
+			for i, rec := range recs {
+				positions[i] = Resource{
+					Links: Links{
+						RelTypeSelf:         Link{Href: "/v1/me/recommendations/" + string(rec.RecommendationID)},
+						RelType("reaction"): Link{Href: "/v1/me/recommendations/" + string(rec.RecommendationID) + "/reaction"},
+					}, Props: Props{
+						"recommendation_id": rec.RecommendationID,
+						"position_id":       rec.PositionID,
+						"title":             rec.Title,
+						"company":           rec.Company,
+						"description":       rec.Description,
+					},
+				}
+			}
+			if len(positions) > 0 {
+				embedded["positions"] = positions
+			}
 		}
 
-		page := GetPagination(r)
-		params, err := GetRecommendationsQueryParams(r)
-		if errors.Is(err, ErrInvalidHideReactedParamValue) {
-			Fail(w, http.StatusBadRequest, FailData{"hide_reacted": "must be one of: false, true"})
-			return
+		if isRecruiter && q.Get("exclude_candidates") != "true" && q.Get("can_cursor") != "done" {
+			canPage := page
+			canPage.Cursor = q.Get("can_cursor")
+			recs, cursor, err := s.GetCandidateRecommendations(recruiterID, canPage, excludeReacted)
+			if err != nil {
+				slog.Error("failed to fetch candidate recommendations", "err", err)
+				Error(w, http.StatusInternalServerError, "internal server error")
+				return
+			}
+			canNextCursor = cmp.Or(string(cursor), "done")
+			totalCount += len(recs)
+			candidates := make([]Resource, len(recs))
+			for i, rec := range recs {
+				candidates[i] = Resource{
+					Links: Links{
+						RelTypeSelf:         Link{Href: "/v1/me/recommendations/" + string(rec.RecommendationID)},
+						RelType("reaction"): Link{Href: "/v1/me/recommendations/" + string(rec.RecommendationID) + "/reaction"},
+					},
+					Props: Props{
+						"recommendation_id": rec.RecommendationID,
+						"candidate_id":      rec.CandidateID,
+						"full_name":         rec.FullName,
+						"about":             rec.About,
+					},
+				}
+			}
+			if len(candidates) > 0 {
+				embedded["candidates"] = candidates
+			}
 		}
 
-		posRcm, nextCursor, err := s.GetPositionRecommendations(candidate.ID, page, params)
-		if err != nil {
-			slog.Error("failed to fetch recommendations", "err", err)
-			Error(w, http.StatusInternalServerError, "failed to fetch recommendations")
-			return
-		}
-
-		page.Count = len(posRcm)
-		page.HasNext = nextCursor != ""
-
+		page.Count = totalCount
+		page.HasNext = posNextCursor != "done" || canNextCursor != "done"
 		links := Links{
 			RelTypeSelf:          Link{Href: "/v1/me/recommendations"},
 			RelType("reactions"): Link{Href: "/v1/me/reactions"},
 		}
-		if nextCursor != "" {
-			links[RelTypeNext] = Link{Href: fmt.Sprintf("/v1/me/recommendations?cursor=%s&limit=%d", nextCursor, page.Limit)}
-		}
-
-		positions := make([]Resource, len(posRcm))
-		for i, rec := range posRcm {
-			positions[i] = Resource{
-				Links: Links{
-					RelTypeSelf:         Link{Href: "/v1/me/recommendations/" + rec.RecommendationID},
-					RelType("reaction"): Link{Href: "/v1/me/recommendations/" + rec.RecommendationID + "/reaction"},
-				},
-				Props: Props{
-					"recommendation_id": rec.RecommendationID,
-					"position_id":       rec.PositionID,
-					"title":             rec.Title,
-					"company":           rec.Company,
-					"description":       rec.Description,
-				},
-			}
-		}
-
-		embedded := Embedded{}
-		if len(posRcm) > 0 {
-			embedded = Embedded{"positions": positions}
+		if page.HasNext {
+			links[RelTypeNext] = Link{Href: fmt.Sprintf(
+				"/v1/me/recommendations?pos_cursor=%s&can_cursor=%s&limit=%d",
+				posNextCursor, canNextCursor, page.Limit,
+			)}
 		}
 
 		Success(w, http.StatusOK, Resource{
@@ -1184,24 +1179,21 @@ func CreateMyReaction(s StoreInterface) http.HandlerFunc {
 	}
 
 	return func(w http.ResponseWriter, r *http.Request) {
-		userID, ok := GetUserID(r)
+		claims, ok := GetClaims(r)
 		if !ok {
-			Error(w, http.StatusUnauthorized, "unauthorized")
+			slog.Error("failed to access claims")
+			Error(w, http.StatusInternalServerError, "internal server error")
 			return
 		}
 
-		candidate, err := s.GetCandidateByUserID(userID)
-		if err != nil {
-			if errors.Is(err, ErrCandidateNotFound) {
-				Error(w, http.StatusNotFound, "candidate profile not found")
-				return
-			}
-			slog.Error("failed to fetch candidate profile", "err", err)
-			Error(w, http.StatusInternalServerError, "failed to fetch candidate profile")
+		candidateID, ok := claims.Roles[RoleCandidate]
+		if !ok {
+			slog.Error("failed to access candidate's ID within claims")
+			Error(w, http.StatusInternalServerError, "internal server error")
 			return
 		}
 
-		recommendationID := r.PathValue("id")
+		recommendationID := ULID(r.PathValue("id"))
 		if recommendationID == "" {
 			Fail(w, http.StatusBadRequest, FailData{"id": "recommendation id is required"})
 			return
@@ -1214,10 +1206,10 @@ func CreateMyReaction(s StoreInterface) http.HandlerFunc {
 				return
 			}
 			slog.Error("failed to fetch recommendation", "err", err)
-			Error(w, http.StatusInternalServerError, "failed to fetch recommendation")
+			Error(w, http.StatusInternalServerError, "internal server error")
 			return
 		}
-		if rec.CandidateID != candidate.ID {
+		if rec.CandidateID != candidateID {
 			Fail(w, http.StatusForbidden, FailData{"id": "forbidden for this id"})
 			return
 		}
@@ -1235,7 +1227,7 @@ func CreateMyReaction(s StoreInterface) http.HandlerFunc {
 		if err := s.CreateReaction(Reaction{
 			RecommendationID: recommendationID,
 			ReactorType:      ReactorTypeCandidate,
-			ReactorID:        candidate.ID,
+			ReactorID:        candidateID,
 			ReactionType:     body.ReactionType,
 		}); err != nil {
 			if errors.Is(err, ErrReactionAlreadyExists) {
@@ -1243,13 +1235,13 @@ func CreateMyReaction(s StoreInterface) http.HandlerFunc {
 				return
 			}
 			slog.Error("failed to record reaction", "err", err)
-			Error(w, http.StatusInternalServerError, "failed to record reaction")
+			Error(w, http.StatusInternalServerError, "internal server error")
 			return
 		}
 
 		Success(w, http.StatusCreated, Resource{
 			Links: Links{
-				RelTypeSelf:          Link{Href: "/v1/me/recommendations/" + recommendationID + "/reaction"},
+				RelTypeSelf:          Link{Href: "/v1/me/recommendations/" + string(recommendationID) + "/reaction"},
 				RelTypeUp:            Link{Href: "/v1/me/recommendations"},
 				RelType("reactions"): Link{Href: "/v1/me/reactions"},
 				RelType("matches"):   Link{Href: "/v1/me/matches"},
@@ -1264,29 +1256,26 @@ func CreateMyReaction(s StoreInterface) http.HandlerFunc {
 // Returns all reactions made by the authenticated candidate.
 func GetMeReactions(s StoreInterface) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		userID, ok := GetUserID(r)
+		claims, ok := GetClaims(r)
 		if !ok {
-			Error(w, http.StatusUnauthorized, "unauthorized")
+			slog.Error("failed to access claims")
+			Error(w, http.StatusInternalServerError, "internal server error")
 			return
 		}
 
-		candidate, err := s.GetCandidateByUserID(userID)
-		if err != nil {
-			if errors.Is(err, ErrCandidateNotFound) {
-				Error(w, http.StatusNotFound, "candidate profile not found")
-				return
-			}
-			slog.Error("failed to fetch candidate profile", "err", err)
-			Error(w, http.StatusInternalServerError, "failed to fetch candidate profile")
+		candidateID, ok := claims.Roles[RoleCandidate]
+		if !ok {
+			slog.Error("failed to access candidate's ID within claims")
+			Error(w, http.StatusInternalServerError, "internal server error")
 			return
 		}
 
 		page := GetPagination(r)
 
-		reactions, nextCursor, err := s.GetReactionsByCandidateID(candidate.ID, page)
+		reactions, nextCursor, err := s.GetReactionsByCandidateID(candidateID, page)
 		if err != nil {
 			slog.Error("failed to fetch candidate profile", "err", err)
-			Error(w, http.StatusInternalServerError, "failed to fetch reactions")
+			Error(w, http.StatusInternalServerError, "internal server error")
 			return
 		}
 
@@ -1297,7 +1286,7 @@ func GetMeReactions(s StoreInterface) http.HandlerFunc {
 			RelTypeSelf: Link{Href: "/v1/me/reactions"},
 		}
 		if nextCursor != "" {
-			links[RelTypeNext] = Link{Href: "/v1/me/reactions?cursor=" + nextCursor}
+			links[RelTypeNext] = Link{Href: "/v1/me/reactions?cursor=" + string(nextCursor)}
 		}
 
 		// Each embedded reaction links back to the recommendation it was made on.
@@ -1305,7 +1294,7 @@ func GetMeReactions(s StoreInterface) http.HandlerFunc {
 		for i, rx := range reactions {
 			embedded[i] = Resource{
 				Links: Links{
-					RelTypeSelf: Link{Href: "/v1/me/recommendations/" + rx.RecommendationID + "/reaction"},
+					RelTypeSelf: Link{Href: "/v1/me/recommendations/" + string(rx.RecommendationID) + "/reaction"},
 				},
 				Props: Props{
 					"recommendation_id": rx.RecommendationID,
@@ -1328,29 +1317,26 @@ func GetMeReactions(s StoreInterface) http.HandlerFunc {
 // Returns all mutual matches for the authenticated candidate.
 func GetMeMatches(s StoreInterface) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		userID, ok := GetUserID(r)
+		claims, ok := GetClaims(r)
 		if !ok {
-			Error(w, http.StatusUnauthorized, "unauthorized")
+			slog.Error("failed to access claims")
+			Error(w, http.StatusInternalServerError, "internal server error")
 			return
 		}
 
-		candidate, err := s.GetCandidateByUserID(userID)
-		if err != nil {
-			if errors.Is(err, ErrCandidateNotFound) {
-				Error(w, http.StatusNotFound, "candidate profile not found")
-				return
-			}
-			slog.Error("failed to fetch candidate profile", "err", err)
-			Error(w, http.StatusInternalServerError, "failed to fetch candidate profile")
+		candidateID, ok := claims.Roles[RoleCandidate]
+		if !ok {
+			slog.Error("failed to access candidate's ID within claims")
+			Error(w, http.StatusInternalServerError, "internal server error")
 			return
 		}
 
 		page := GetPagination(r)
 
-		matches, nextCursor, err := s.GetMatchesByCandidateID(candidate.ID, page)
+		matches, nextCursor, err := s.GetMatchesByCandidateID(candidateID, page)
 		if err != nil {
 			slog.Error("failed to fetch matches", "err", err)
-			Error(w, http.StatusInternalServerError, "failed to fetch matches")
+			Error(w, http.StatusInternalServerError, "internal server error")
 			return
 		}
 
@@ -1368,7 +1354,7 @@ func GetMeMatches(s StoreInterface) http.HandlerFunc {
 		for i, m := range matches {
 			embedded[i] = Resource{
 				Links: Links{
-					RelTypeSelf: Link{Href: "/v1/positions/" + m.PositionID},
+					RelTypeSelf: Link{Href: "/v1/positions/" + string(m.PositionID)},
 				},
 				Props: Props{
 					"position_id": m.PositionID,

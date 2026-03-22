@@ -4,6 +4,7 @@
 package hirevec
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -12,6 +13,7 @@ import (
 
 var (
 	ErrFailedConnectDB       = errors.New("failed to connect to database")
+	ErrFailedPingDB          = errors.New("failed to ping database")
 	ErrUserNoRole            = errors.New("user has no role")
 	ErrUserNotFound          = errors.New("user not found")
 	ErrRecommendationExists  = errors.New("recommendation already exists")
@@ -44,9 +46,11 @@ const (
 )
 
 type (
+	ULID string
+
 	// User represents a system user
 	User struct {
-		ID             string   `json:"id,omitempty"`
+		ID             ULID     `json:"id,omitempty"`
 		Provider       Provider `json:"provider,omitempty"`
 		ProviderUserID string   `json:"provider_user_id,omitempty"`
 		Email          string   `json:"email,omitempty"`
@@ -56,34 +60,34 @@ type (
 
 	// Candidate represents a candidate profile
 	Candidate struct {
-		ID     string `json:"id"`
-		UserID string `json:"user_id,omitempty"`
+		ID     ULID   `json:"id"`
+		UserID ULID   `json:"user_id,omitempty"`
 		About  string `json:"about"`
 	}
 
 	// Recruiter represents a recruiter profile
 	Recruiter struct {
-		ID     string `json:"id"`
-		UserID string `json:"user_id"`
+		ID     ULID `json:"id"`
+		UserID ULID `json:"user_id"`
 	}
 
 	Recommendation struct {
-		ID          string `json:"id"`
-		PositionID  string `json:"position_id"`
-		CandidateID string `json:"candidate_id"`
+		ID          ULID `json:"id"`
+		PositionID  ULID `json:"position_id"`
+		CandidateID ULID `json:"candidate_id"`
 	}
 
 	// Position represents a job position
 	Position struct {
-		ID          string `json:"id"`
-		RecruiterID string `json:"recruiter_id"`
+		ID          ULID   `json:"id"`
+		RecruiterID ULID   `json:"recruiter_id"`
 		Title       string `json:"title"`
 		Description string `json:"description"`
 		Company     string `json:"company"`
 	}
 
 	Match struct {
-		PositionID  string    `json:"position_id"`
+		PositionID  ULID      `json:"position_id"`
 		Title       string    `json:"title"`
 		Description string    `json:"description"`
 		Company     string    `json:"company"`
@@ -92,9 +96,9 @@ type (
 
 	// Reaction represents either a candidate or recruiter reaction to a recommendation
 	Reaction struct {
-		RecommendationID string       `json:"recommendation_id"`
+		RecommendationID ULID         `json:"recommendation_id"`
 		ReactorType      ReactorType  `json:"reactor_type"`
-		ReactorID        string       `json:"reactor_id"`
+		ReactorID        ULID         `json:"reactor_id"`
 		ReactionType     ReactionType `json:"reaction_type"`
 		ReactedAt        time.Time    `json:"reacted_at"`
 	}
@@ -107,16 +111,16 @@ type (
 	}
 
 	PositionRecommendation struct {
-		RecommendationID string `json:"recommendation_id"`
-		PositionID       string `json:"position_id"`
+		RecommendationID ULID   `json:"recommendation_id"`
+		PositionID       ULID   `json:"position_id"`
 		Title            string `json:"title"`
 		Company          string `json:"company"`
 		Description      string `json:"description"`
 	}
 
 	CandidateRecommendation struct {
-		RecommendationID string `json:"recommendation_id"`
-		CandidateID      string `json:"candidate_id"`
+		RecommendationID ULID   `json:"recommendation_id"`
+		CandidateID      ULID   `json:"candidate_id"`
 		UserName         string `json:"username"`
 		FullName         string `json:"full_name,omitempty"`
 		About            string `json:"about"`
@@ -126,21 +130,19 @@ type (
 type StoreInterface interface {
 	CreateCandidate(Candidate) error
 	CreateReaction(Reaction) error
-	CreateRecommendation(positionID, candidateID string) (recID string, err error)
+	CreateRecommendation(positionID, candidateID ULID) (ULID, error)
 	CreateRecruiter(Recruiter) error
-	CreateRefreshToken(userID string, expiresAt time.Time) (jti string, err error)
-	CreateUser(User) (userID string, err error)
-	GetCandidate(id string) (*Candidate, error)
-	GetCandidateByUserID(id string) (*Candidate, error)
-	GetReactionsByCandidateID(candidateID string, page Page) ([]Reaction, string, error)
-	GetMatchesByCandidateID(candidateID string, page Page) ([]Match, string, error)
-	GetRecruiterByUserID(id string) (*Recruiter, error)
-	GetPosition(id string) (*Position, error)
-	GetUserByProvider(provider Provider, providerUserID string) (userID string, roles []Role, err error)
-	GetRecommendation(id string) (*Recommendation, error)
-	GetUserRoles(userID string, provider Provider) (roles []Role, err error)
-	GetPositionRecommendations(candidateID string, page Page, params RecommendationsQueryParams) ([]PositionRecommendation, string, error)
-	ValidateActiveSession(jti string) (isSessionRevoked bool, err error)
+	CreateRefreshToken(userID ULID, expiresAt time.Time) (jti ULID, err error)
+	CreateUser(User) (userID ULID, err error)
+	GetReactionsByCandidateID(ULID, Page) (reactions []Reaction, nextCursor ULID, err error)
+	GetMatchesByCandidateID(ULID, Page) (matches []Match, nextCursos ULID, err error)
+	GetPosition(ULID) (*Position, error)
+	GetUserByProvider(Provider, string) (ULID, map[Role]ULID, error)
+	GetRecommendation(ULID) (*Recommendation, error)
+	GetUserRoles(ULID, Provider) (map[Role]ULID, error)
+	GetPositionRecommendations(candidateID ULID, page Page, excludeReacted bool) (positionRecommendations []PositionRecommendation, nextCursor ULID, err error)
+	GetCandidateRecommendations(candidateID ULID, page Page, excludeReacted bool) (candidateRecommenations []CandidateRecommendation, nextCursor ULID, err error)
+	IsActiveSession(jti ULID) (bool, error)
 }
 
 type StoreConfig struct {
@@ -164,14 +166,24 @@ func NewStore(c StoreConfig) (*StoreImpl, error) {
 		c.PostgresPassword,
 		c.PostgresDB,
 	)
-	database, err := sql.Open("pgx", dbConnString)
+
+	db, err := sql.Open("pgx", dbConnString)
 	if err != nil {
 		return nil, ErrFailedConnectDB
 	}
-	return &StoreImpl{Postgres: database}, nil
+
+	db.SetMaxOpenConns(25)
+	db.SetMaxIdleConns(25)
+	db.SetConnMaxIdleTime(10 * time.Minute)
+	db.SetConnMaxLifetime(1 * time.Hour)
+
+	if err := db.PingContext(context.Background()); err != nil {
+		return nil, ErrFailedPingDB
+	}
+	return &StoreImpl{Postgres: db}, nil
 }
 
-func (s StoreImpl) GetCandidate(id string) (*Candidate, error) {
+func (s StoreImpl) GetCandidate(id ULID) (*Candidate, error) {
 	var c Candidate
 
 	err := s.Postgres.QueryRow(
@@ -192,7 +204,7 @@ func (s StoreImpl) GetCandidate(id string) (*Candidate, error) {
 	return &c, nil
 }
 
-func (s StoreImpl) GetRecommendation(id string) (*Recommendation, error) {
+func (s StoreImpl) GetRecommendation(id ULID) (*Recommendation, error) {
 	var r Recommendation
 
 	err := s.Postgres.QueryRow(
@@ -214,7 +226,7 @@ func (s StoreImpl) GetRecommendation(id string) (*Recommendation, error) {
 	return &r, nil
 }
 
-func (s StoreImpl) GetPosition(id string) (*Position, error) {
+func (s StoreImpl) GetPosition(id ULID) (*Position, error) {
 	var p Position
 
 	err := s.Postgres.QueryRow(
@@ -239,7 +251,7 @@ func (s StoreImpl) GetPosition(id string) (*Position, error) {
 }
 
 // GetCandidateByUserID fetches a candidate by their associated user ID.
-func (s StoreImpl) GetCandidateByUserID(userID string) (*Candidate, error) {
+func (s StoreImpl) GetCandidateByUserID(userID ULID) (*Candidate, error) {
 	var c Candidate
 	query := `
         SELECT id, user_id, about
@@ -260,70 +272,59 @@ func (s StoreImpl) GetCandidateByUserID(userID string) (*Candidate, error) {
 }
 
 // GetUserByProvider retrieves an existing user and his role based on their provider details.
-func (s StoreImpl) GetUserByProvider(provider Provider, providerUserID string) (userID string, roles []Role, err error) {
-	var isCandidate, isRecruiter bool
-
-	err = s.Postgres.QueryRow(
+func (s StoreImpl) GetUserByProvider(provider Provider, providerUserID string) (ULID, map[Role]ULID, error) {
+	var userID ULID
+	var candidateID, recruiterID sql.NullString
+	err := s.Postgres.QueryRow(
 		`
-		SELECT
-				u.id,
-				EXISTS (
-						SELECT 1 FROM v1.candidates c WHERE c.user_id = u.id
-				) AS is_candidate,
-				EXISTS (
-						SELECT 1 FROM v1.recruiters r WHERE r.user_id = u.id
-				) AS is_recruiter
-		FROM v1.users u
-		WHERE u.provider = $1
-			AND u.provider_user_id = $2
-		`,
+    SELECT
+        u.id,
+        c.id AS candidate_id,
+        r.id AS recruiter_id
+    FROM v1.users u
+    LEFT JOIN v1.candidates c ON c.user_id = u.id
+    LEFT JOIN v1.recruiters r ON r.user_id = u.id
+    WHERE u.provider = $1
+        AND u.provider_user_id = $2
+    `,
 		provider,
 		providerUserID,
-	).Scan(&userID, &isCandidate, &isRecruiter)
-
+	).Scan(&userID, &candidateID, &recruiterID)
 	if err == sql.ErrNoRows {
-		return "", nil, fmt.Errorf("%w: providerUserID=%s", ErrUserNotFound, providerUserID)
+		return "", nil, fmt.Errorf("%w: userID=%s", ErrUserNotFound, userID)
 	}
 	if err != nil {
 		return "", nil, err
 	}
 
-	if isCandidate {
-		roles = append(roles, RoleCandidate)
+	roles := make(map[Role]ULID, 2)
+	if candidateID.Valid {
+		roles[RoleCandidate] = ULID(candidateID.String)
 	}
-	if isRecruiter {
-		roles = append(roles, RoleRecruiter)
+	if recruiterID.Valid {
+		roles[RoleRecruiter] = ULID(recruiterID.String)
 	}
-
 	if len(roles) == 0 {
 		return userID, nil, ErrUserNoRole
 	}
-
 	return userID, roles, nil
 }
 
 // GetUserRoles fetches user roles by user's ID and provider.
-func (s StoreImpl) GetUserRoles(userID string, provider Provider) (roles []Role, err error) {
-	var isCandidate, isRecruiter bool
-
-	err = s.Postgres.QueryRow(
+func (s StoreImpl) GetUserRoles(userID ULID, provider Provider) (map[Role]ULID, error) {
+	var candidateID, recruiterID sql.NullString
+	err := s.Postgres.QueryRow(
 		`
 		SELECT
-				u.id,
-				EXISTS (
-						SELECT 1 FROM v1.candidates c WHERE c.user_id = u.id
-				) AS is_candidate,
-				EXISTS (
-						SELECT 1 FROM v1.recruiters r WHERE r.user_id = u.id
-				) AS is_recruiter
+				(SELECT c.id FROM v1.candidates c WHERE c.user_id = u.id) AS candidate_id,
+				(SELECT r.id FROM v1.recruiters r WHERE r.user_id = u.id) AS recruiter_id
 		FROM v1.users u
 		WHERE u.user_id = $1
 			AND u.provider = $2
 		`,
 		userID,
 		provider,
-	).Scan(&isCandidate, &isRecruiter)
-
+	).Scan(&candidateID, &recruiterID)
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("%w: userID=%s", ErrUserNotFound, userID)
 	}
@@ -331,23 +332,23 @@ func (s StoreImpl) GetUserRoles(userID string, provider Provider) (roles []Role,
 		return nil, err
 	}
 
-	if isCandidate {
-		roles = append(roles, RoleCandidate)
+	roles := make(map[Role]ULID, 2)
+	if candidateID.Valid {
+		roles[RoleCandidate] = ULID(candidateID.String)
 	}
-	if isRecruiter {
-		roles = append(roles, RoleRecruiter)
+	if recruiterID.Valid {
+		roles[RoleRecruiter] = ULID(recruiterID.String)
 	}
-
 	if len(roles) == 0 {
 		return nil, ErrUserNoRole
 	}
-
 	return roles, nil
 }
 
 // CreateUser generates a unique username and inserts a new user record.
-func (s StoreImpl) CreateUser(u User) (userID string, err error) {
-	err = s.Postgres.QueryRow(
+func (s StoreImpl) CreateUser(u User) (ULID, error) {
+	var userID ULID
+	err := s.Postgres.QueryRow(
 		`
 		INSERT INTO v1.users (
 			provider,
@@ -429,9 +430,10 @@ func (s StoreImpl) CreateRecruiter(r Recruiter) error {
 	return err
 }
 
-// ValidateActiveSession checks if the JTI exists and is not expired.
-func (s StoreImpl) ValidateActiveSession(jti string) (isSessionRevoked bool, err error) {
-	return isSessionRevoked, s.Postgres.QueryRow(
+// IsActiveSession checks if the JTI exists and is not expired.
+func (s StoreImpl) IsActiveSession(jti ULID) (bool, error) {
+	var isActive bool
+	return isActive, s.Postgres.QueryRow(
 		`
 		SELECT revoked 
 	 	FROM v1.refresh_tokens 
@@ -439,11 +441,11 @@ func (s StoreImpl) ValidateActiveSession(jti string) (isSessionRevoked bool, err
 		AND expires_at > NOW()
 		`,
 		jti,
-	).Scan(&isSessionRevoked)
+	).Scan(&isActive)
 }
 
 // CreateRefreshToken creates a new refresh token record.
-func (s StoreImpl) CreateRefreshToken(userID string, expiresAt time.Time) (jti string, err error) {
+func (s StoreImpl) CreateRefreshToken(userID ULID, expiresAt time.Time) (jti ULID, err error) {
 	err = s.Postgres.QueryRow(
 		`
 		INSERT INTO v1.refresh_tokens (
@@ -460,21 +462,21 @@ func (s StoreImpl) CreateRefreshToken(userID string, expiresAt time.Time) (jti s
 }
 
 // CreateRecommendation inserts a new recommendation for a candidate and a position.
-func (s StoreImpl) CreateRecommendation(positionID, candidateID string) (recID string, err error) {
+func (s StoreImpl) CreateRecommendation(positionID, candidateID ULID) (ULID, error) {
 	query := `
 		INSERT INTO v1.recommendations (position_id, candidate_id)
 		VALUES ($1, $2)
 		ON CONFLICT (position_id, candidate_id) DO NOTHING
 		RETURNING id
 	`
-	err = s.Postgres.QueryRow(query, positionID, candidateID).Scan(&recID)
-	if err != nil {
+
+	var recID ULID
+	if err := s.Postgres.QueryRow(query, positionID, candidateID).Scan(&recID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return "", ErrRecommendationExists
 		}
 		return "", err
 	}
-
 	if recID == "" {
 		return "", ErrRecommendationExists
 	}
@@ -483,22 +485,20 @@ func (s StoreImpl) CreateRecommendation(positionID, candidateID string) (recID s
 }
 
 // GetPositionRecommendations returns paginated position recommendations for a candidate.
-func (s StoreImpl) GetPositionRecommendations(candidateID string, page Page, params RecommendationsQueryParams) ([]PositionRecommendation, string, error) {
+func (s StoreImpl) GetPositionRecommendations(candidateID ULID, page Page, excludeReacted bool) (positionRecommendations []PositionRecommendation, nextCursor ULID, err error) {
 	rows, err := s.Postgres.Query(`
 		SELECT r.id, p.id, p.title, p.company, p.description
 		FROM v1.recommendations r
 		JOIN v1.positions p ON p.id = r.position_id
+		LEFT JOIN v1.reactions rx ON rx.recommendation_id = r.id
+				AND rx.reactor_type = 'candidate'
+				AND rx.reactor_id = $1
 		WHERE r.candidate_id = $1
-		  AND ($2 = '' OR r.id > $2)
-		  AND (NOT $4 OR NOT EXISTS (
-		      SELECT 1 FROM v1.reactions rx
-		      WHERE rx.recommendation_id = r.id
-		        AND rx.reactor_type = 'candidate'
-		        AND rx.reactor_id = $1
-		  ))
+				AND ($2 = '' OR r.id > $2)
+				AND (NOT $4 OR rx.recommendation_id IS NULL)
 		ORDER BY r.id ASC
 		LIMIT $3
-	`, candidateID, page.Cursor, page.Limit+1, params.HideReacted)
+	`, candidateID, page.Cursor, page.Limit+1, excludeReacted)
 	if err != nil {
 		return nil, "", err
 	}
@@ -516,17 +516,58 @@ func (s StoreImpl) GetPositionRecommendations(candidateID string, page Page, par
 		return nil, "", err
 	}
 
-	var nextCursor string
 	if len(results) > page.Limit {
 		results = results[:page.Limit]
-		nextCursor = results[page.Limit-1].RecommendationID
+		nextCursor = ULID(results[page.Limit-1].RecommendationID)
+	}
+
+	return results, nextCursor, nil
+}
+
+func (s StoreImpl) GetCandidateRecommendations(recruiterID ULID, page Page, excludeReacted bool) ([]CandidateRecommendation, ULID, error) {
+	rows, err := s.Postgres.Query(`
+		SELECT r.id, c.id, u.full_name, c.about
+		FROM v1.recommendations r
+		JOIN v1.positions p ON p.id = r.position_id
+		JOIN v1.candidates c ON c.id = r.candidate_id
+		JOIN v1.users u ON u.id = c.user_id
+		LEFT JOIN v1.reactions rx ON rx.recommendation_id = r.id
+				AND rx.reactor_type = 'recruiter'
+				AND rx.reactor_id = $1
+		WHERE p.recruiter_id = $1
+				AND ($2 = '' OR r.id > $2)
+				AND (NOT $4 OR rx.recommendation_id IS NULL)
+		ORDER BY r.id ASC
+		LIMIT $3
+	`, recruiterID, page.Cursor, page.Limit+1, excludeReacted)
+	if err != nil {
+		return nil, "", err
+	}
+	defer rows.Close()
+
+	var results []CandidateRecommendation
+	for rows.Next() {
+		var cr CandidateRecommendation
+		if err := rows.Scan(&cr.RecommendationID, &cr.CandidateID, &cr.FullName, &cr.About); err != nil {
+			return nil, "", err
+		}
+		results = append(results, cr)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, "", err
+	}
+
+	var nextCursor ULID
+	if len(results) > page.Limit {
+		results = results[:page.Limit]
+		nextCursor = ULID(results[page.Limit-1].RecommendationID)
 	}
 
 	return results, nextCursor, nil
 }
 
 // GetReactionsByCandidateID returns paginated reactions made by a candidate.
-func (s StoreImpl) GetReactionsByCandidateID(candidateID string, page Page) ([]Reaction, string, error) {
+func (s StoreImpl) GetReactionsByCandidateID(candidateID ULID, page Page) (reactions []Reaction, nextCursor ULID, err error) {
 	rows, err := s.Postgres.Query(`
 		SELECT recommendation_id, reactor_type, reactor_id, reaction_type, created_at
 		FROM v1.reactions
@@ -553,17 +594,16 @@ func (s StoreImpl) GetReactionsByCandidateID(candidateID string, page Page) ([]R
 		return nil, "", err
 	}
 
-	var nextCursor string
 	if len(results) > page.Limit {
 		results = results[:page.Limit]
-		nextCursor = results[page.Limit-1].RecommendationID
+		nextCursor = ULID(results[page.Limit-1].RecommendationID)
 	}
 
 	return results, nextCursor, nil
 }
 
 // GetMatchesByCandidateID returns paginated matches for a candidate.
-func (s StoreImpl) GetMatchesByCandidateID(candidateID string, page Page) ([]Match, string, error) {
+func (s StoreImpl) GetMatchesByCandidateID(candidateID ULID, page Page) (matches []Match, nextCursor ULID, err error) {
 	rows, err := s.Postgres.Query(`
 		SELECT m.position_id, p.title, p.description, COALESCE(p.company, ''), m.created_at
 		FROM v1.matches m
@@ -590,17 +630,16 @@ func (s StoreImpl) GetMatchesByCandidateID(candidateID string, page Page) ([]Mat
 		return nil, "", err
 	}
 
-	var nextCursor string
 	if len(results) > page.Limit {
 		results = results[:page.Limit]
-		nextCursor = results[page.Limit-1].PositionID
+		nextCursor = ULID(results[page.Limit-1].PositionID)
 	}
 
 	return results, nextCursor, nil
 }
 
 // GetRecruiterByUserID fetches a recruiter by their associated user ID.
-func (s StoreImpl) GetRecruiterByUserID(userID string) (*Recruiter, error) {
+func (s StoreImpl) GetRecruiterByUserID(userID ULID) (*Recruiter, error) {
 	var rec Recruiter
 	err := s.Postgres.QueryRow(
 		`SELECT id, user_id FROM v1.recruiters WHERE user_id = $1 LIMIT 1`,
