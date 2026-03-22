@@ -18,7 +18,7 @@ The server implements OAuth2.0 Authorization Code Flow via OIDC. Developers shou
 PASETO (Platform-Agnostic Security Tokens) are used for access, refresh and state tokens. Developers should familiarize themselves with [PASETO](https://paseto.io/).
 
 ## Authentication
-Anyone can access authentication endpoint (currently `/v1/auth/login/{provider}`) to obtain an access and refresh tokens. 
+Anyone can access authentication endpoint (currently `/oauth/authorize`) to obtain an access and refresh tokens. 
 
 After successful authentication:
 - If the user already has a profile, the client is issued a pair of access and refresh tokens with the appropriate scopes based on their profile type (candidate or recruiter).
