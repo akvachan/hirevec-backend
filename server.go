@@ -390,7 +390,7 @@ func RootMux(s StoreInterface, v VaultInterface) http.Handler {
 		Mux:     mux,
 		Method:  MethodPost,
 		Route:   RouteMeReaction,
-		Handler: CreateMyReaction(s),
+		Handler: CreateMeReaction(s),
 		RequiredRoles: []Role{
 			RoleCandidate, RoleRecruiter,
 		},
@@ -1059,7 +1059,15 @@ func GetMeRecommendations(s StoreInterface) http.HandlerFunc {
 
 		q := r.URL.Query()
 		page := GetPagination(r)
-		excludeReacted := q.Get("exclude_reacted") == "true"
+		var excludeReacted bool
+		switch q.Get("exclude_reacted") {
+		case "true":
+			excludeReacted = true
+		case "false":
+			excludeReacted = false
+		default:
+			excludeReacted = true
+		}
 		posNextCursor, canNextCursor := "done", "done"
 		page.Count = 0
 		embedded := Embedded{}
@@ -1162,7 +1170,7 @@ func GetMeRecommendations(s StoreInterface) http.HandlerFunc {
 }
 
 // Records a candidate's reaction to a position recommendation.
-func CreateMyReaction(s StoreInterface) http.HandlerFunc {
+func CreateMeReaction(s StoreInterface) http.HandlerFunc {
 	type RequestBody struct {
 		ReactionType ReactionType `json:"reaction_type"`
 	}
