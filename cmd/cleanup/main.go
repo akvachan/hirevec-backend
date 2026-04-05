@@ -4,7 +4,6 @@
 package main
 
 import (
-	"log/slog"
 	"os"
 	"strings"
 
@@ -16,11 +15,9 @@ var requiredVars = []string{
 	"POSTGRES_DB",
 }
 
-var log = slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))
-
 func main() {
 	if err := common.Loadenv(".env"); err != nil {
-		log.Warn("failed to load .env, using system environment", "err", err)
+		common.Log.Warn("failed to load .env, using system environment", "err", err)
 	}
 	common.CheckEnvVars(requiredVars)
 
@@ -28,12 +25,12 @@ func main() {
 	dbName := os.Getenv("POSTGRES_DB")
 	superuser := common.DetectSuperuser()
 
-	log.Info("starting cleanup", "superuser", superuser, "user", user, "db", dbName)
+	common.Log.Info("starting cleanup", "superuser", superuser, "user", user, "db", dbName)
 
 	dropDB(superuser, dbName)
 	dropRole(superuser, user)
 
-	log.Info("cleanup complete")
+	common.Log.Info("cleanup complete")
 }
 
 func dropDB(superuser string, dbName string) {
@@ -44,7 +41,7 @@ func dropDB(superuser string, dbName string) {
 		common.Exit("failed to check database existence", "err", err)
 	}
 	if strings.TrimSpace(string(out)) != "1" {
-		log.Info("database does not exist, skipping", "db", dbName)
+		common.Log.Info("database does not exist, skipping", "db", dbName)
 		return
 	}
 
@@ -53,7 +50,7 @@ func dropDB(superuser string, dbName string) {
 	)
 
 	common.RunPsqlSuper(superuser, "postgres", "drop database", "DROP DATABASE "+dbName+";")
-	log.Info("database dropped", "db", dbName)
+	common.Log.Info("database dropped", "db", dbName)
 }
 
 func dropRole(superuser, user string) {
@@ -64,10 +61,10 @@ func dropRole(superuser, user string) {
 		common.Exit("failed to check role existence", "err", err)
 	}
 	if strings.TrimSpace(string(out)) != "1" {
-		log.Info("role does not exist, skipping", "role", user)
+		common.Log.Info("role does not exist, skipping", "role", user)
 		return
 	}
 
 	common.RunPsqlSuper(superuser, "postgres", "drop role", "DROP ROLE "+user+";")
-	log.Info("role dropped", "role", user)
+	common.Log.Info("role dropped", "role", user)
 }

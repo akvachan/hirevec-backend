@@ -4,7 +4,6 @@
 package main
 
 import (
-	"log/slog"
 	"os"
 
 	"github.com/akvachan/hirevec-core"
@@ -14,7 +13,7 @@ import (
 
 func main() {
 	if err := common.Loadenv(".env"); err != nil {
-		slog.Warn("failed to load .env, using system environment")
+		common.Log.Warn("failed to load .env, using system environment")
 	}
 
 	if err := hirevec.RunApp(

@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log/slog"
 	"net/http"
 	"os"
 	"strings"
@@ -17,11 +16,9 @@ import (
 	"github.com/akvachan/hirevec-core/cmd/common"
 )
 
-var log = slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))
-
 func main() {
 	if err := common.Loadenv(".env"); err != nil {
-		log.Warn("failed to load .env, using system environment", "err", err)
+		common.Log.Warn("failed to load .env, using system environment", "err", err)
 	}
 
 	if len(os.Args) < 2 {
@@ -93,7 +90,7 @@ func main() {
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		log.Error("unexpected status code", "status", resp.StatusCode)
+		common.Log.Error("unexpected status code", "status", resp.StatusCode)
 	}
 
 	if len(body) == 0 {

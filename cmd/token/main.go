@@ -7,7 +7,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
@@ -23,7 +22,7 @@ func main() {
 	defer stop()
 
 	if err := common.Loadenv(".env"); err != nil {
-		slog.Warn("failed to load .env, using system environment", "err", err)
+		common.Log.Warn("failed to load .env, using system environment", "err", err)
 	}
 	pgHost := common.Getenv("POSTGRES_HOST", "localhost")
 	pgPort := common.Getenv("POSTGRES_PORT", "5432")
